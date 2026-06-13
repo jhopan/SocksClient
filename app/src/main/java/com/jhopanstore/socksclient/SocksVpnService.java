@@ -11,7 +11,8 @@ import android.os.Build;
 import android.os.ParcelFileDescriptor;
 import android.util.Log;
 
-
+import java.util.Locale;
+import java.util.concurrent.atomic.AtomicLong;
 
 import io.nekohasekai.libbox.CommandServer;
 import io.nekohasekai.libbox.CommandServerHandler;
@@ -55,6 +56,9 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
     private static final String KEY_CONNECTED = "connected";
     private static final String KEY_STATUS = "status";
     private static final String KEY_LAST_SEEN = "last_seen";
+    private static final String KEY_TRAFFIC_ENABLED = "traffic_counter_enabled";
+    private static final String TUN_IFACE = "sb-tun";
+    private static final long TRAFFIC_POLL_MS = 2000;
 
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final Object lock = new Object();
@@ -64,6 +68,12 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
     private CommandServer commandServer;
     private ParcelFileDescriptor vpnFd;
     private Thread heartbeatThread;
+
+    // ── Traffic counter ──
+    private final AtomicLong uploadBytes = new AtomicLong(0);
+    private final AtomicLong downloadBytes = new AtomicLong(0);
+    private volatile boolean trafficCounterEnabled;
+    private Thread trafficThread;
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
@@ -129,7 +139,7 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
             setupOptions.setBasePath(getFilesDir().getAbsolutePath());
             setupOptions.setWorkingPath(getNoBackupFilesDir().getAbsolutePath());
             setupOptions.setTempPath(getCacheDir().getAbsolutePath());
-            setupOptions.setDebug(true);
+            setupOptions.setDebug(BuildConfig.DEBUG);
             setupOptions.setLogMaxLines(1000);
             Libbox.setup(setupOptions);
             Libbox.redirectStderr(getFileStreamPath("singbox-stderr.log").getAbsolutePath());
@@ -141,7 +151,9 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
             // Build config dan start service (bind_interface = null, pakai auto_detect_interface)
             String config = buildSingBoxConfig(host.trim(), port, user, pass, null);
             logI("starting sing-box, config-length=" + config.length() + ", auto_detect_interface");
-            logI("config: " + config);
+            if (BuildConfig.DEBUG) {
+                logI("config: " + config);
+            }
             commandServer.startOrReloadService(config, new OverrideOptions());
 
             synchronized (lock) {
@@ -152,6 +164,9 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
             setStatus(true, "Connected ke SOCKS " + host + ":" + port);
             notifyStatus("Connected ✓ " + host + ":" + port);
             startHeartbeat();
+            resetTrafficCounters();
+            loadTrafficToggle();
+            startTrafficMonitor();
             logI("VPN connected successfully");
 
         } catch (Throwable t) {
@@ -178,6 +193,7 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
 
         logI("disconnectInternal");
         stopHeartbeat();
+        stopTrafficMonitor();
         disconnectCoreOnly();
         setStatus(false, "Disconnected");
         notifyStatus("Disconnected");
@@ -242,6 +258,159 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
     }
 
     // ──────────────────────────────────────────────
+    // Traffic Counter — monitor TUN interface usage
+    // ──────────────────────────────────────────────
+
+    private void loadTrafficToggle() {
+        SharedPreferences sp = getSharedPreferences(PREFS, MODE_PRIVATE);
+        trafficCounterEnabled = sp.getBoolean(KEY_TRAFFIC_ENABLED, true);
+    }
+
+    /** Toggle the traffic counter on/off at runtime. Persists across reconnects. */
+    public void setTrafficCounterEnabled(boolean enabled) {
+        trafficCounterEnabled = enabled;
+        SharedPreferences sp = getSharedPreferences(PREFS, MODE_PRIVATE);
+        sp.edit().putBoolean(KEY_TRAFFIC_ENABLED, enabled).apply();
+        if (enabled && running) {
+            startTrafficMonitor();
+        } else {
+            stopTrafficMonitor();
+        }
+        // Refresh notification immediately
+        if (running) {
+            notifyStatus(enabled
+                    ? "Connected ✓ (traffic on)"
+                    : "Connected ✓");
+        }
+    }
+
+    public boolean isTrafficCounterEnabled() {
+        return trafficCounterEnabled;
+    }
+
+    public long getUploadBytes() {
+        return uploadBytes.get();
+    }
+
+    public long getDownloadBytes() {
+        return downloadBytes.get();
+    }
+
+    private void resetTrafficCounters() {
+        uploadBytes.set(0);
+        downloadBytes.set(0);
+    }
+
+    private void startTrafficMonitor() {
+        stopTrafficMonitor();
+        if (!trafficCounterEnabled) return;
+
+        trafficThread = new Thread(() -> {
+            long prevTx = -1, prevRx = -1;
+            while (running && !stopping && trafficCounterEnabled) {
+                try {
+                    long[] stats = readTunTraffic();
+                    long curTx = stats[0];
+                    long curRx = stats[1];
+
+                    if (prevTx >= 0 && curTx >= prevTx) {
+                        uploadBytes.addAndGet(curTx - prevTx);
+                    }
+                    if (prevRx >= 0 && curRx >= prevRx) {
+                        downloadBytes.addAndGet(curRx - prevRx);
+                    }
+                    prevTx = curTx;
+                    prevRx = curRx;
+
+                    // Update notification with latest traffic
+                    if (running) {
+                        NotificationManager mgr = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+                        if (mgr != null) {
+                            mgr.notify(NOTIF_ID, buildNotification(
+                                    "Connected ✓"));
+                        }
+                    }
+
+                    Thread.sleep(TRAFFIC_POLL_MS);
+                } catch (InterruptedException e) {
+                    break;
+                } catch (Exception e) {
+                    Log.w(TAG, "traffic monitor error", e);
+                    try { Thread.sleep(TRAFFIC_POLL_MS); } catch (InterruptedException ie) { break; }
+                }
+            }
+        }, "sb-traffic");
+        trafficThread.setDaemon(true);
+        trafficThread.start();
+    }
+
+    private void stopTrafficMonitor() {
+        if (trafficThread != null) {
+            trafficThread.interrupt();
+            trafficThread = null;
+        }
+    }
+
+    /**
+     * Read TX/RX bytes from the TUN interface via sysfs.
+     * Returns [txBytes, rxBytes]. Falls back to [-1, -1] on error.
+     */
+    private long[] readTunTraffic() {
+        long tx = -1, rx = -1;
+        try {
+            // Try sysfs first (most reliable)
+            tx = readLongFromFile("/sys/class/net/" + TUN_IFACE + "/statistics/tx_bytes");
+            rx = readLongFromFile("/sys/class/net/" + TUN_IFACE + "/statistics/rx_bytes");
+        } catch (Exception ignored) {
+        }
+
+        // Fallback: parse /proc/net/dev
+        if (tx < 0 || rx < 0) {
+            try {
+                java.io.BufferedReader br = new java.io.BufferedReader(
+                        new java.io.FileReader("/proc/net/dev"));
+                String line;
+                while ((line = br.readLine()) != null) {
+                    line = line.trim();
+                    if (line.startsWith(TUN_IFACE + ":")) {
+                        String[] parts = line.split("\\s+");
+                        // Format: iface: rxBytes rxPackets ... txBytes txPackets ...
+                        // Index:  0      1        2           9        10
+                        if (parts.length >= 11) {
+                            String rxStr = parts[1];
+                            // Handle "iface:rxBytes" format (no space after colon)
+                            if (rxStr.contains(":")) {
+                                rxStr = rxStr.substring(rxStr.indexOf(':') + 1);
+                            }
+                            rx = Long.parseLong(rxStr);
+                            tx = Long.parseLong(parts[9]);
+                        }
+                        break;
+                    }
+                }
+                br.close();
+            } catch (Exception ignored) {
+            }
+        }
+
+        return new long[]{tx, rx};
+    }
+
+    private long readLongFromFile(String path) throws Exception {
+        java.io.BufferedReader br = new java.io.BufferedReader(new java.io.FileReader(path));
+        String val = br.readLine();
+        br.close();
+        return Long.parseLong(val.trim());
+    }
+
+    private String formatBytes(long bytes) {
+        if (bytes < 1024) return bytes + " B";
+        if (bytes < 1024 * 1024) return String.format(Locale.US, "%.1f KB", bytes / 1024.0);
+        if (bytes < 1024L * 1024 * 1024) return String.format(Locale.US, "%.1f MB", bytes / (1024.0 * 1024));
+        return String.format(Locale.US, "%.2f GB", bytes / (1024.0 * 1024 * 1024));
+    }
+
+    // ──────────────────────────────────────────────
     // Network Interface Detection
     // ──────────────────────────────────────────────
 
@@ -301,7 +470,8 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
         sb.append("{");
 
         // ── Log ──
-        sb.append("\"log\":{\"level\":\"debug\",\"timestamp\":true},");
+        String logLevel = BuildConfig.DEBUG ? "debug" : "warn";
+        sb.append("\"log\":{\"level\":\"").append(logLevel).append("\",\"timestamp\":true},");
 
         // ── DNS ──
         // Remote DNS via SOCKS tunnel (privasi + geo-unblock)
@@ -422,10 +592,17 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
         Intent openIntent = new Intent(this, MainActivity.class);
         PendingIntent contentIntent = PendingIntent.getActivity(
                 this, 0, openIntent, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+
+        String displayText = content;
+        if (trafficCounterEnabled && running) {
+            displayText = content + "  |  ↑ " + formatBytes(uploadBytes.get())
+                    + "  ↓ " + formatBytes(downloadBytes.get());
+        }
+
         return new Notification.Builder(this, CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.stat_sys_upload_done)
                 .setContentTitle("Socks Client VPN")
-                .setContentText(content)
+                .setContentText(displayText)
                 .setOngoing(true)
                 .setContentIntent(contentIntent)
                 .build();
@@ -446,13 +623,17 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
     }
 
     private void logI(String m) {
-        Log.i(TAG, m);
-        DebugLog.append(this, m);
+        if (BuildConfig.DEBUG) {
+            Log.i(TAG, m);
+            DebugLog.append(this, m);
+        }
     }
 
     private void logE(String m, Throwable t) {
         Log.e(TAG, m, t);
-        DebugLog.append(this, m + ": " + safeMessage(t));
+        if (BuildConfig.DEBUG) {
+            DebugLog.append(this, m + ": " + safeMessage(t));
+        }
     }
 
     // ══════════════════════════════════════════════
