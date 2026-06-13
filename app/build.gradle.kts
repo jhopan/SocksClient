@@ -5,19 +5,8 @@ plugins {
 tasks.register("prepareKotlinBuildScriptModel")
 
 dependencies {
+    // Hanya libbox.aar (sing-box core) — zero external dependencies!
     implementation(files("libs/libbox.aar"))
-    implementation("androidx.core:core-ktx:1.13.1")
-    implementation("androidx.appcompat:appcompat:1.7.0")
-    implementation("com.google.android.material:material:1.12.0")
-}
-
-configurations.all {
-    resolutionStrategy {
-        force("androidx.core:core:1.13.1")
-        force("androidx.core:core-ktx:1.13.1")
-        force("androidx.appcompat:appcompat:1.7.0")
-        force("androidx.appcompat:appcompat-resources:1.7.0")
-    }
 }
 
 android {
