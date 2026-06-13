@@ -1,71 +1,101 @@
-# Socks Client by JhopanStore
+# 🧦 Socks Client by JhopanStore
 
-Android SOCKS5 VPN Client berbasis **sing-box** (libbox) dengan TUN interface.
+Client VPN SOCKS5 untuk menghubungkan perangkat ke server SOCKS5 hotspot.
 
-## Arsitektur
+Tersedia untuk **Android** dan **Windows Desktop**.
 
-```
-┌─────────────┐     SOCKS5      ┌─────────────┐     Internet
-│  HP Client  │ ───────────────→ │  HP Server  │ ──────────────→
-│ (App ini)   │   via Hotspot    │ (VPN Hospot)│   via Cellular
-│  sing-box   │   TCP + UDP      │  SOCKS5+HTTP│
-│  TUN IPv4   │                  │  UDP Relay  │
-└─────────────┘                  └─────────────┘
-```
+---
 
-## Build
+## 📱 Android
 
-### Prasyarat
-- Android Studio Hedgehog+ / Gradle 8.x
-- JDK 17
-- Android SDK (compileSdk 35, minSdk 24)
+APK Socks Client untuk perangkat Android.
 
-### Langkah Build
-1. Clone repo ini
-2. **Install Git LFS** lalu pull file binary:
-   ```bash
-   git lfs install
-   git lfs pull
-   ```
-3. Buka di Android Studio atau build via CLI:
-   ```bash
-   ./gradlew :app:assembleDebug
-   ```
-4. APK ada di `app/build/outputs/apk/debug/app-debug.apk`
+### Download
 
-### libbox.aar
-File `app/libs/libbox.aar` (72MB) adalah library sing-box untuk Android.
-- **Sudah termasuk** di repo ini via Git LFS
-- **Source**: [SagerNet/sing-box](https://github.com/SagerNet/sing-box)
-- **Build dari source**: Compile sing-box Go library untuk Android (lihat [F-Droid build recipe](https://gitlab.com/fdroid/fdroiddata/-/blob/master/metadata/io.nekohasekai.sfa.yml))
+| Arsitektur | Ukuran | Link |
+|-----------|--------|------|
+| arm64-v8a | ~18 MB | [Release](../../releases) |
+| armeabi-v7a | ~17 MB | [Release](../../releases) |
+| Universal | ~34 MB | [Release](../../releases) |
 
-## Konfigurasi
+### Cara Pakai
+1. Pastikan HP server menjalankan **VPN Hospot** app
+2. Hubungkan HP client ke hotspot/USB tether server
+3. Buka Socks Client, isi Host/IP server dan Port (default 1080)
+4. Klik **Connect Socks VPN**
+5. Izinkan koneksi VPN
+6. Semua traffic HP client kini lewat SOCKS5! ✓
 
-### Server
-- IP server SOCKS5 default: `10.12.132.225`
-- Port SOCKS5: `1080`
-- Port HTTP: `8080`
-
-### DNS
-- Remote: `tcp://8.8.8.8` via SOCKS tunnel
-- Local: `1.1.1.1` via direct (bootstrap)
-- Strategy: `ipv4_only` (IPv6 di-block karena server tidak support IPv6 routing)
-
-### Route Rules
-1. DNS protocol → `direct`
-2. Server IP (`10.12.132.225/32`) → `direct` (anti routing loop)
-3. IPv6 → `reject` (block semua IPv6)
-4. Sisanya → `socks-out`
-
-## Struktur
-
-```
-app/src/main/java/com/jhopanstore/socksclient/
-├── MainActivity.java        # UI: input server, connect/disconnect
-├── SocksVpnService.java     # VPN Service + sing-box config builder
-└── DebugLog.java            # Logging helper
+### Build dari Source
+```bash
+cd android
+./gradlew assembleRelease
 ```
 
-## License
+---
 
-Copyright (C) JhopanStore
+## 💻 Desktop (Windows)
+
+Aplikasi desktop ringan untuk Windows, powered by **Go + WebView2 + sing-box**.
+
+### Download
+
+| File | Ukuran | Keterangan |
+|------|--------|------------|
+| `SocksClientDesktop_Setup.exe` | ~11 MB | Installer (Inno Setup) — **Recommended** |
+| `socks-client.exe` | ~11 MB | Portable (single file) |
+
+### System Requirements
+- Windows 10/11 (64-bit)
+- WebView2 Runtime (sudah built-in di Windows 11)
+- Admin privileges (untuk TUN interface)
+
+### Cara Pakai
+1. Download dan jalankan installer (atau portable .exe)
+2. App otomatis minta **Admin privileges**
+3. Isi Host/IP server, Port (default 1080)
+4. Klik **Connect Socks VPN**
+5. Semua traffic PC kini lewat SOCKS5! ✓
+
+### Fitur Desktop
+- 🪟 **Modern UI** — Dark theme, responsive
+- 🗂️ **System Tray** — Minimize ke tray, connect/disconnect dari tray menu
+- 📊 **Traffic Counter** — Monitor download/upload realtime
+- 🔒 **Single .exe** — 11MB, zero dependencies (WebView2 built-in)
+- ⚡ **Super Ringan** — RAM ~22MB (Go backend)
+- 🪪 **Taskbar Icon** — Logo Socks Client
+
+### Build dari Source
+
+**Requirements:**
+- Go 1.21+
+- MinGW (GCC) untuk windres
+
+```bash
+cd desktop
+
+# Build
+go build -ldflags="-s -w -H windowsgui" -o socks-client.exe .
+
+# Compress dengan UPX (opsional)
+upx --best --lzma socks-client.exe
+
+# Build installer (butuh Inno Setup)
+# Compile setup.iss dengan Inno Setup Compiler
+```
+
+---
+
+## 🌐 Social Media
+
+- 📱 **Telegram:** [@JhopanStore](https://t.me/JhopanStore)
+- 📸 **Instagram:** @jhopanstore
+- 🎬 **YouTube:** JhopanStore
+
+## 📦 Related Projects
+
+- [VPN Hospot by JhopanStore](https://github.com/jhopan/VpnHospotByJhopanStore) — Server SOCKS5 untuk Android
+
+## 📄 License
+
+MIT License — Free for personal and commercial use.

@@ -1,0 +1,14 @@
+# Binaries
+socks-client.exe
+socks-client-upx.exe
+
+# Embedded sing-box (download separately)
+embed/sing-box.exe
+
+# Auto-generated
+settings.json
+socks_client_config.json
+
+# OS
+.DS_Store
+Thumbs.db

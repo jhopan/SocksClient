@@ -1,1 +1,2 @@
-*.aar filter=lfs diff=lfs merge=lfs -text
+# Git LFS for large files
+desktop/embed/sing-box.exe filter=lfs diff=lfs merge=lfs -text
