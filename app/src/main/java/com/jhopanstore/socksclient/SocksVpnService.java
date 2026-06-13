@@ -57,6 +57,8 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
     private static final String KEY_STATUS = "status";
     private static final String KEY_LAST_SEEN = "last_seen";
     private static final String KEY_TRAFFIC_ENABLED = "traffic_counter_enabled";
+    private static final String KEY_UPLOAD_BYTES = "upload_bytes";
+    private static final String KEY_DOWNLOAD_BYTES = "download_bytes";
     private static final String TUN_IFACE = "sb-tun";
     private static final long TRAFFIC_POLL_MS = 2000;
 
@@ -196,6 +198,12 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
         stopTrafficMonitor();
         disconnectCoreOnly();
         setStatus(false, "Disconnected");
+        // Clear traffic stats on disconnect
+        SharedPreferences sp = getSharedPreferences(PREFS, MODE_PRIVATE);
+        sp.edit()
+                .putLong(KEY_UPLOAD_BYTES, 0)
+                .putLong(KEY_DOWNLOAD_BYTES, 0)
+                .apply();
         notifyStatus("Disconnected");
         stopForeground(true);
         stopSelf();
@@ -299,6 +307,11 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
     private void resetTrafficCounters() {
         uploadBytes.set(0);
         downloadBytes.set(0);
+        SharedPreferences sp = getSharedPreferences(PREFS, MODE_PRIVATE);
+        sp.edit()
+                .putLong(KEY_UPLOAD_BYTES, 0)
+                .putLong(KEY_DOWNLOAD_BYTES, 0)
+                .apply();
     }
 
     private void startTrafficMonitor() {
@@ -321,6 +334,13 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
                     }
                     prevTx = curTx;
                     prevRx = curRx;
+
+                    // Persist traffic stats to SharedPreferences for Activity to read
+                    SharedPreferences sp = getSharedPreferences(PREFS, MODE_PRIVATE);
+                    sp.edit()
+                            .putLong(KEY_UPLOAD_BYTES, uploadBytes.get())
+                            .putLong(KEY_DOWNLOAD_BYTES, downloadBytes.get())
+                            .apply();
 
                     // Update notification with latest traffic
                     if (running) {

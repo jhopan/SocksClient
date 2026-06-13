@@ -23,6 +23,7 @@ import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
+import android.widget.Switch;
 import android.widget.TextView;
 
 public class MainActivity extends Activity {
@@ -34,10 +35,14 @@ public class MainActivity extends Activity {
     private static final int GREEN = Color.rgb(28, 184, 98);
     private static final int RED = Color.rgb(220, 60, 60);
     private static final int GRAY = Color.rgb(96, 102, 114);
+    private static final int ACCENT = Color.rgb(56, 132, 244);
     private static final int REQ_VPN = 300;
     private static final String STATUS_PREFS = "socks_client_status";
     private static final String KEY_CONNECTED = "connected";
     private static final String KEY_STATUS = "status";
+    private static final String KEY_TRAFFIC_ENABLED = "traffic_counter_enabled";
+    private static final String KEY_UPLOAD_BYTES = "upload_bytes";
+    private static final String KEY_DOWNLOAD_BYTES = "download_bytes";
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private SharedPreferences prefs;
@@ -47,9 +52,14 @@ public class MainActivity extends Activity {
     private EditText userInput;
     private EditText passInput;
     private TextView statusText;
-    private TextView debugLogText;
     private Button connectButton;
     private Button disconnectButton;
+
+    // ── Traffic counter UI ──
+    private Switch trafficSwitch;
+    private TextView uploadText;
+    private TextView downloadText;
+    private LinearLayout trafficCard;
 
     private final Runnable ticker = new Runnable() {
         @Override
@@ -87,10 +97,8 @@ public class MainActivity extends Activity {
             if (resultCode == RESULT_OK) {
                 startVpn();
             } else {
-                // User denied or cancelled VPN permission
                 connectButton.setEnabled(true);
                 statusText.setText("Status: VPN permission ditolak/dibatalkan");
-                DebugLog.append(this, "VPN permission denied/cancelled, resultCode=" + resultCode);
                 Log.w(TAG, "VPN permission denied/cancelled, resultCode=" + resultCode);
             }
         }
@@ -138,14 +146,6 @@ public class MainActivity extends Activity {
         disconnectButton.setOnClickListener(v -> stopVpn());
         root.addView(disconnectButton, marginTop(matchWrap(), 8));
 
-        Button clearLog = button("Clear Debug Log");
-        clearLog.setBackgroundColor(Color.rgb(80, 80, 90));
-        clearLog.setOnClickListener(v -> {
-            DebugLog.clear(this);
-            refreshUi();
-        });
-        root.addView(clearLog, marginTop(matchWrap(), 8));
-
         Button guide = button("Cara Pakai Socks Client");
         guide.setBackgroundColor(Color.rgb(86, 96, 111));
         guide.setOnClickListener(v -> showGuide());
@@ -154,16 +154,57 @@ public class MainActivity extends Activity {
         statusText = text("", 15, true, TEXT_PRIMARY);
         root.addView(statusText, marginTop(matchWrap(), 18));
 
-        TextView logTitle = text("Debug Log", 13, true, TEXT_SECONDARY);
-        root.addView(logTitle, marginTop(matchWrap(), 14));
-
-        debugLogText = text("", 12, false, TEXT_PRIMARY);
-        debugLogText.setTypeface(Typeface.MONOSPACE);
-        debugLogText.setBackgroundColor(Color.rgb(16, 16, 22));
-        debugLogText.setPadding(dp(10), dp(10), dp(10), dp(10));
-        root.addView(debugLogText, marginTop(matchWrap(), 6));
+        // ── Traffic Counter Card ──
+        trafficCard = buildTrafficCard();
+        root.addView(trafficCard, marginTop(matchWrap(), 14));
 
         return scroll;
+    }
+
+    private LinearLayout buildTrafficCard() {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setBackgroundColor(CARD);
+        card.setPadding(dp(14), dp(12), dp(14), dp(12));
+
+        // Header row: label + switch
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+
+        TextView label = text("Traffic Counter", 15, true, TEXT_PRIMARY);
+        header.addView(label, new LinearLayout.LayoutParams(0, -2, 1));
+
+        trafficSwitch = new Switch(this);
+        SharedPreferences statusPrefs = getSharedPreferences(STATUS_PREFS, MODE_PRIVATE);
+        trafficSwitch.setChecked(statusPrefs.getBoolean(KEY_TRAFFIC_ENABLED, true));
+        trafficSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            getSharedPreferences(STATUS_PREFS, MODE_PRIVATE)
+                    .edit()
+                    .putBoolean(KEY_TRAFFIC_ENABLED, isChecked)
+                    .apply();
+            updateTrafficVisibility(isChecked);
+        });
+        header.addView(trafficSwitch, new LinearLayout.LayoutParams(-2, -2));
+
+        card.addView(header, matchWrap());
+
+        // Upload row
+        uploadText = text("↑  Upload: 0 B", 14, false, ACCENT);
+        uploadText.setTypeface(Typeface.DEFAULT);
+        card.addView(uploadText, marginTop(matchWrap(), 10));
+
+        // Download row
+        downloadText = text("↓  Download: 0 B", 14, false, Color.rgb(72, 199, 142));
+        downloadText.setTypeface(Typeface.DEFAULT);
+        card.addView(downloadText, marginTop(matchWrap(), 4));
+
+        return card;
+    }
+
+    private void updateTrafficVisibility(boolean enabled) {
+        uploadText.setVisibility(enabled ? View.VISIBLE : View.GONE);
+        downloadText.setVisibility(enabled ? View.VISIBLE : View.GONE);
     }
 
     private void prepareAndConnect() {
@@ -171,15 +212,12 @@ public class MainActivity extends Activity {
         int port = parsePort(portInput, 1080);
         if (host.isEmpty()) {
             statusText.setText("Status: Host/IP wajib diisi");
-            DebugLog.append(this, "connect blocked: empty host");
             Log.w(TAG, "connect blocked: empty host");
             return;
         }
 
-        // Disable button to prevent double-click
         connectButton.setEnabled(false);
         statusText.setText("Status: Preparing VPN...");
-        DebugLog.append(this, "prepareAndConnect host=" + host + " port=" + port);
         Log.i(TAG, "prepareAndConnect host=" + host + " port=" + port);
 
         prefs.edit()
@@ -189,7 +227,6 @@ public class MainActivity extends Activity {
                 .putString("pass", passInput.getText().toString())
                 .apply();
 
-        // Run VPN prepare on a background thread to avoid blocking UI
         new Thread(() -> {
             try {
                 Intent vpnIntent = VpnService.prepare(MainActivity.this);
@@ -197,16 +234,13 @@ public class MainActivity extends Activity {
                     if (vpnIntent != null) {
                         try {
                             startActivityForResult(vpnIntent, REQ_VPN);
-                            DebugLog.append(this, "VpnService.prepare requires user consent");
                             Log.i(TAG, "VpnService.prepare requires user consent");
                         } catch (Exception e) {
                             statusText.setText("Status: VPN permission error - " + safeMessage(e));
                             connectButton.setEnabled(true);
-                            DebugLog.append(this, "vpn permission error: " + safeMessage(e));
                             Log.e(TAG, "vpn permission error", e);
                         }
                     } else {
-                        DebugLog.append(this, "VpnService.prepare already granted");
                         Log.i(TAG, "VpnService.prepare already granted");
                         startVpn();
                     }
@@ -215,7 +249,6 @@ public class MainActivity extends Activity {
                 handler.post(() -> {
                     statusText.setText("Status: Gagal prepare VPN - " + safeMessage(e));
                     connectButton.setEnabled(true);
-                    DebugLog.append(this, "prepare failed: " + safeMessage(e));
                     Log.e(TAG, "prepare failed", e);
                 });
             }
@@ -232,11 +265,9 @@ public class MainActivity extends Activity {
                     .putExtra(SocksVpnService.EXTRA_PASS, passInput.getText().toString());
             if (Build.VERSION.SDK_INT >= 26) startForegroundService(intent);
             else startService(intent);
-            DebugLog.append(this, "startVpn service started");
             Log.i(TAG, "startVpn service started");
         } catch (Throwable e) {
             saveStatus(false, "Gagal start VPN: " + safeMessage(e));
-            DebugLog.append(this, "startVpn failed: " + safeMessage(e));
             Log.e(TAG, "startVpn failed", e);
         }
         refreshUi();
@@ -246,13 +277,11 @@ public class MainActivity extends Activity {
         try {
             disconnectButton.setEnabled(false);
             statusText.setText("Status: Stopping VPN...");
-            DebugLog.append(this, "stopVpn clicked");
             Log.i(TAG, "stopVpn clicked");
-            
+
             Intent stop = new Intent(this, SocksVpnService.class).setAction(SocksVpnService.ACTION_DISCONNECT);
             startService(stop);
-            
-            // Wait a bit then refresh UI
+
             new Thread(() -> {
                 try {
                     Thread.sleep(500);
@@ -261,7 +290,6 @@ public class MainActivity extends Activity {
             }).start();
         } catch (Throwable e) {
             saveStatus(false, "Stop error: " + safeMessage(e));
-            DebugLog.append(this, "stopVpn failed: " + safeMessage(e));
             Log.e(TAG, "stopVpn failed", e);
             refreshUi();
         }
@@ -272,7 +300,6 @@ public class MainActivity extends Activity {
         boolean connected = statusPrefs.getBoolean(KEY_CONNECTED, false);
         String status = statusPrefs.getString(KEY_STATUS, "Belum terkoneksi");
 
-        // Jika service sudah mati tapi status masih connected, reset otomatis
         if (connected && !isVpnServiceAlive()) {
             connected = false;
             status = "VPN process berhenti. Silakan connect ulang.";
@@ -280,7 +307,28 @@ public class MainActivity extends Activity {
         }
 
         statusText.setText("Status: " + status);
-        debugLogText.setText(DebugLog.read(this));
+
+        // ── Traffic counter ──
+        boolean trafficEnabled = statusPrefs.getBoolean(KEY_TRAFFIC_ENABLED, true);
+        if (trafficSwitch.isChecked() != trafficEnabled) {
+            trafficSwitch.setChecked(trafficEnabled);
+        }
+        updateTrafficVisibility(trafficEnabled);
+
+        if (trafficEnabled && connected) {
+            long up = statusPrefs.getLong(KEY_UPLOAD_BYTES, 0);
+            long down = statusPrefs.getLong(KEY_DOWNLOAD_BYTES, 0);
+            uploadText.setText("↑  Upload: " + formatBytes(up));
+            downloadText.setText("↓  Download: " + formatBytes(down));
+            trafficCard.setVisibility(View.VISIBLE);
+        } else if (!connected) {
+            uploadText.setText("↑  Upload: 0 B");
+            downloadText.setText("↓  Download: 0 B");
+            trafficCard.setVisibility(View.VISIBLE);
+        } else {
+            trafficCard.setVisibility(View.GONE);
+        }
+
         boolean connecting = status != null && status.toLowerCase().contains("connecting");
         connectButton.setEnabled(!connected && !connecting);
         connectButton.setBackgroundColor(connected ? GRAY : GREEN);
@@ -296,13 +344,11 @@ public class MainActivity extends Activity {
     }
 
     private boolean isVpnServiceAlive() {
-        // Cek via heartbeat timestamp dari service
         SharedPreferences sp = getSharedPreferences(STATUS_PREFS, MODE_PRIVATE);
         long lastSeen = sp.getLong("last_seen", 0);
         if (lastSeen > 0 && (System.currentTimeMillis() - lastSeen) < 8000) {
             return true;
         }
-        // Fallback: cek via ActivityManager
         ActivityManager am = (ActivityManager) getSystemService(ACTIVITY_SERVICE);
         if (am == null) return false;
         for (ActivityManager.RunningServiceInfo info : am.getRunningServices(Integer.MAX_VALUE)) {
@@ -328,6 +374,13 @@ public class MainActivity extends Activity {
         return msg == null || msg.trim().isEmpty() ? e.getClass().getSimpleName() : msg;
     }
 
+    private String formatBytes(long bytes) {
+        if (bytes < 1024) return bytes + " B";
+        if (bytes < 1024 * 1024) return String.format(java.util.Locale.US, "%.1f KB", bytes / 1024.0);
+        if (bytes < 1024L * 1024 * 1024) return String.format(java.util.Locale.US, "%.1f MB", bytes / (1024.0 * 1024));
+        return String.format(java.util.Locale.US, "%.2f GB", bytes / (1024.0 * 1024 * 1024));
+    }
+
     private void showGuide() {
         String guide = "1) Hubungkan HP client ke hotspot/USB tether dari HP server.\n"
                 + "2) Isi Host/IP dengan alamat SOCKS5 server (contoh 192.168.1.10).\n"
@@ -341,7 +394,8 @@ public class MainActivity extends Activity {
                 + "• DNS remote via tunnel (anti DNS leak)\n"
                 + "• Anti routing loop (bind_interface + bypass rule)\n"
                 + "• Protocol sniffing (HTTP/TLS/QUIC)\n"
-                + "• IPv4 + IPv6 support\n\n"
+                + "• IPv4 + IPv6 support\n"
+                + "• Traffic Counter (upload/download stats)\n\n"
                 + "Tips: Pastikan SOCKS5 server support UDP Associate agar UDP lancar.";
         new AlertDialog.Builder(this)
                 .setTitle("Panduan Socks Client")
