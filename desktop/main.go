@@ -2,608 +2,446 @@ package main
 
 import (
 	"embed"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
 	"unsafe"
 
 	"github.com/energye/systray"
-	webview "github.com/jchv/go-webview2"
+	"github.com/lxn/walk"
+	. "github.com/lxn/walk/declarative"
+	"github.com/lxn/win"
 )
 
-//go:embed embed/sing-box.exe embed/logo_store.png embed/app.ico
-var singboxBin embed.FS
-
-var logoBase64 string
-var trayIconData []byte
-
-func init() {
-	data, _ := singboxBin.ReadFile("embed/logo_store.png")
-	logoBase64 = base64.StdEncoding.EncodeToString(data)
-	trayIconData, _ = singboxBin.ReadFile("embed/app.ico")
-}
+//go:embed embed/sing-box.exe embed/app.ico embed/logo_store.png
+var embeddedFiles embed.FS
 
 const (
-	appName     = "Socks Client Desktop"
-	appVersion  = "1.0.0"
-	configFile  = "socks_client_config.json"
-	settingFile = "settings.json"
+	appName    = "Socks Client Desktop"
+	appVersion = "1.0.0"
 )
 
+var logoPath string
+var trayIconPath string
+
 type App struct {
-	mu            sync.Mutex
-	wv            webview.WebView
-	process       *exec.Cmd
-	connected     bool
-	settings      Settings
-	appDir        string
-	trayRunning   bool
-	windowVisible bool
-	showChan      chan struct{}
+	mu        sync.Mutex
+	mw        *walk.MainWindow
+	process   *exec.Cmd
+	connected bool
+	settings  Settings
+	appDir    string
+
+	hostEdit    *walk.LineEdit
+	portEdit    *walk.LineEdit
+	userEdit    *walk.LineEdit
+	passEdit    *walk.LineEdit
+	connectBtn  *walk.PushButton
+	disconnBtn  *walk.PushButton
+	statusLabel *walk.Label
+	dlLabel     *walk.Label
+	ulLabel     *walk.Label
+	trafficCB   *walk.CheckBox
+	trayCB      *walk.CheckBox
+
+	trafficEnabled bool
+	trayEnabled    bool
+	trayStarted    bool
+	windowVisible  bool
 }
 
 type Settings struct {
-	Host        string `json:"host"`
-	Port        int    `json:"port"`
-	User        string `json:"user"`
-	Pass        string `json:"pass"`
-	Traffic     bool   `json:"traffic"`
-	TrayEnabled bool   `json:"tray"`
+	Host    string `json:"host"`
+	Port    int    `json:"port"`
+	User    string `json:"user"`
+	Pass    string `json:"pass"`
+	Traffic bool   `json:"traffic"`
+	Tray    bool   `json:"tray"`
 }
 
 func main() {
-	app := &App{windowVisible: true}
+	app := &App{trafficEnabled: true, trayEnabled: true, windowVisible: true}
 	app.loadSettings()
 
-	// Start systray with external loop (non-blocking)
-	systrayStart, systrayEnd := systray.RunWithExternalLoop(app.onTrayReady, app.onTrayExit)
-	systrayStart()
+	app.appDir, _ = os.Executable()
+	app.appDir = filepath.Dir(app.appDir)
 
-	// Main loop: recreate webview when shown from tray
-	for {
-		app.runWebview()
-		app.windowVisible = false
-
-		// If tray not enabled, exit normally
-		if !app.settings.TrayEnabled {
-			break
-		}
-
-		// Wait for tray "Show" signal
-		<-app.showChan
-		app.windowVisible = true
+	// Single instance check via lock file
+	lockPath := filepath.Join(os.TempDir(), "socks_client_desktop.lock")
+	if !checkAndLock(lockPath) {
+		showExisting()
+		return
 	}
+	defer os.Remove(lockPath)
 
-	if app.connected {
-		app.killProcess()
-	}
-	systrayEnd()
+	// Extract logo (PNG for banner)
+	logoData, _ := embeddedFiles.ReadFile("embed/logo_store.png")
+	tmpLogo := filepath.Join(os.TempDir(), "socks_logo.png")
+	os.WriteFile(tmpLogo, logoData, 0644)
+	logoPath = tmpLogo
+
+	// Extract tray icon (ICO)
+	icoData, _ := embeddedFiles.ReadFile("embed/app.ico")
+	tmpIco := filepath.Join(os.TempDir(), "socks_tray.ico")
+	os.WriteFile(tmpIco, icoData, 0644)
+	trayIconPath = tmpIco
+
+	app.runUI()
 }
 
-func (a *App) runWebview() {
-	w := webview.New(false)
-	defer w.Destroy()
+// ─── Single Instance ──────────────────────────────────
 
-	a.wv = w
-	w.SetTitle(appName + " v" + appVersion)
-	w.SetSize(380, 700, webview.HintMin)
-
-	// Init showChan for tray show signal
-	if a.showChan == nil {
-		a.showChan = make(chan struct{}, 1)
-	}
-
-	// Bind Go functions to JavaScript
-	w.Bind("goConnect", func(args string) (string, error) {
-		var params []string
-		json.Unmarshal([]byte(args), &params)
-		host, port, user, pass := "", "", "", ""
-		if len(params) > 0 { host = params[0] }
-		if len(params) > 1 { port = params[1] }
-		if len(params) > 2 { user = params[2] }
-		if len(params) > 3 { pass = params[3] }
-		return a.connect(host, port, user, pass), nil
-	})
-	w.Bind("goDisconnect", func(args string) (string, error) {
-		a.disconnect()
-		return "", nil
-	})
-	w.Bind("goGetSettings", func(args string) (string, error) {
-		data, _ := json.Marshal(a.settings)
-		return string(data), nil
-	})
-	w.Bind("goSaveSettings", func(args string) (string, error) {
-		var params []string
-		json.Unmarshal([]byte(args), &params)
-		if len(params) > 0 {
-			json.Unmarshal([]byte(params[0]), &a.settings)
-			a.saveSettings()
-		}
-		return "", nil
-	})
-	w.Bind("goGetTraffic", func(args string) (string, error) {
-		rx, tx := readTunTraffic("socks-tun")
-		return fmt.Sprintf(`{"download":%d,"upload":%d}`, rx, tx), nil
-	})
-	w.Bind("goToggleTraffic", func(args string) (string, error) {
-		var params []bool
-		json.Unmarshal([]byte(args), &params)
-		if len(params) > 0 {
-			a.settings.Traffic = params[0]
-			a.saveSettings()
-		}
-		return "", nil
-	})
-	w.Bind("goSetTray", func(args string) (string, error) {
-		var params []bool
-		json.Unmarshal([]byte(args), &params)
-		if len(params) > 0 {
-			a.settings.TrayEnabled = params[0]
-			a.saveSettings()
-		}
-		return "", nil
-	})
-
-	w.SetHtml(htmlContent())
-
-	// Set window icon (taskbar + title bar)
-	if runtime.GOOS == "windows" {
-		setWindowIcon(w.Window())
-	}
-
-	w.Run()
-}
-
-func (a *App) onTrayReady() {
-	systray.SetIcon(trayIconData)
-	systray.SetTitle(appName)
-	systray.SetTooltip(appName + " v" + appVersion)
-
-	// Menu items
-	mShow := systray.AddMenuItem("🪟 Show Window", "Show the main window")
-	systray.AddSeparator()
-	mConnect := systray.AddMenuItem("🔗 Connect", "Connect to SOCKS5 VPN")
-	mDisconnect := systray.AddMenuItem("⛔ Disconnect", "Disconnect VPN")
-	systray.AddSeparator()
-	mExit := systray.AddMenuItem("❌ Exit", "Exit application")
-
-	// Double-click tray icon = show window
-	systray.SetOnDClick(func(menu systray.IMenu) {
-		a.showWindow()
-	})
-
-	// Menu click handlers
-	mShow.Click(func() { a.showWindow() })
-	mConnect.Click(func() {
-		if !a.connected {
-			a.connect(a.settings.Host, strconv.Itoa(a.settings.Port), a.settings.User, a.settings.Pass)
-		}
-	})
-	mDisconnect.Click(func() {
-		if a.connected {
-			a.disconnect()
-		}
-	})
-	mExit.Click(func() {
-		a.settings.TrayEnabled = false
-		a.showWindow()
-		systray.Quit()
-	})
-}
-
-func (a *App) onTrayExit() {}
-
-func (a *App) showWindow() {
-	if a.showChan != nil {
-		select {
-		case a.showChan <- struct{}{}:
-		default:
-		}
-	}
-}
-
-// ─── Actions ───────────────────────────────────────────────
-
-func (a *App) connect(host, portStr, user, pass string) string {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-
-	if a.connected {
-		return "already connected"
-	}
-
-	host = strings.TrimSpace(host)
-	if host == "" {
-		return "Host/IP wajib diisi!"
-	}
-
-	port, err := strconv.Atoi(strings.TrimSpace(portStr))
-	if err != nil || port <= 0 || port > 65535 {
-		return "Port tidak valid! (1-65535)"
-	}
-
-	a.settings = Settings{Host: host, Port: port, User: strings.TrimSpace(user), Pass: pass, Traffic: a.settings.Traffic}
-	a.saveSettings()
-
-	binPath, err := a.extractSingbox()
+func checkAndLock(lockPath string) bool {
+	data, err := os.ReadFile(lockPath)
 	if err != nil {
-		return "sing-box error: " + err.Error()
+		os.WriteFile(lockPath, []byte(strconv.Itoa(os.Getpid())), 0644)
+		return true
 	}
-
-	config := generateConfig(host, port, strings.TrimSpace(user), pass)
-	configPath := filepath.Join(a.getAppDir(), configFile)
-	data, _ := json.MarshalIndent(config, "", "  ")
-	os.WriteFile(configPath, data, 0644)
-
-	cmd := exec.Command(binPath, "run", "-c", configPath, "-D", filepath.Dir(configPath))
-	if runtime.GOOS == "windows" {
-		attr := windowsSysProcAttr()
-		cmd.SysProcAttr = &attr
-	}
-
-	if err := cmd.Start(); err != nil {
-		return "Failed to start: " + err.Error() + "\n\nRun as Administrator!"
-	}
-
-	time.Sleep(800 * time.Millisecond)
-	if cmd.ProcessState != nil && cmd.ProcessState.Exited() {
-		return "sing-box exited. Run as Administrator!"
-	}
-
-	a.process = cmd
-	a.connected = true
-	go a.monitorTraffic()
-
-	return ""
-}
-
-func (a *App) disconnect() {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.killProcess()
-	a.connected = false
-}
-
-func (a *App) killProcess() {
-	if a.process != nil && a.process.Process != nil {
-		a.process.Process.Kill()
-		a.process.Wait()
-	}
-	a.process = nil
-	a.connected = false
-}
-
-func (a *App) monitorTraffic() {
-	for {
-		a.mu.Lock()
-		c := a.connected
-		a.mu.Unlock()
-		if !c {
-			return
+	pid, _ := strconv.Atoi(string(data))
+	if pid > 0 {
+		proc, err := os.FindProcess(pid)
+		if err == nil && proc.Signal(syscall.Signal(0)) == nil {
+			return false // alive = another instance
 		}
-		time.Sleep(2 * time.Second)
 	}
+	os.WriteFile(lockPath, []byte(strconv.Itoa(os.Getpid())), 0644)
+	return true
 }
 
-// ─── sing-box extraction ───────────────────────────────────
+func showExisting() {
+	user32 := syscall.NewLazyDLL("user32.dll")
+	pEnum := user32.NewProc("EnumWindows")
+	pPID := user32.NewProc("GetWindowThreadProcessId")
+	pShow := user32.NewProc("ShowWindow")
+	pFore := user32.NewProc("SetForegroundWindow")
 
-func (a *App) extractSingbox() (string, error) {
-	appDir := a.getAppDir()
-	binName := "sing-box.exe"
-	if runtime.GOOS != "windows" {
-		binName = "sing-box"
-	}
-	binPath := filepath.Join(appDir, binName)
-
-	if info, err := os.Stat(binPath); err == nil && info.Size() > 1000 {
-		return binPath, nil
+	lockPath := filepath.Join(os.TempDir(), "socks_client_desktop.lock")
+	data, _ := os.ReadFile(lockPath)
+	pid, _ := strconv.Atoi(string(data))
+	if pid <= 0 {
+		return
 	}
 
-	data, err := singboxBin.ReadFile("embed/sing-box.exe")
-	if err != nil {
-		return "", err
-	}
-	return binPath, os.WriteFile(binPath, data, 0755)
+	cb := syscall.NewCallback(func(hwnd, lParam uintptr) uintptr {
+		var wpid uint32
+		pPID.Call(hwnd, uintptr(unsafe.Pointer(&wpid)))
+		if int(wpid) == pid {
+			pShow.Call(hwnd, 9) // SW_RESTORE
+			pFore.Call(hwnd)
+		}
+		return 1
+	})
+	pEnum.Call(cb, 0)
 }
 
-func (a *App) getAppDir() string {
-	if a.appDir != "" {
-		return a.appDir
-	}
-	dir, _ := os.UserCacheDir()
-	a.appDir = filepath.Join(dir, "socks-client-desktop")
-	os.MkdirAll(a.appDir, 0755)
-	return a.appDir
-}
-
-// ─── Settings ──────────────────────────────────────────────
+// ─── Settings ─────────────────────────────────────────
 
 func (a *App) loadSettings() {
-	a.settings = Settings{Host: "192.168.1.10", Port: 1080, Traffic: true}
-	dir, _ := os.UserConfigDir()
-	path := filepath.Join(dir, "socks-client-desktop", settingFile)
-	data, err := os.ReadFile(path)
-	if err == nil {
-		json.Unmarshal(data, &a.settings)
+	a.settings = Settings{Port: 1080, Traffic: true, Tray: true}
+	exePath, _ := os.Executable()
+	data, err := os.ReadFile(filepath.Join(filepath.Dir(exePath), "settings.json"))
+	if err != nil {
+		return
 	}
+	json.Unmarshal(data, &a.settings)
+	a.trafficEnabled = a.settings.Traffic
+	a.trayEnabled = a.settings.Tray
 }
 
 func (a *App) saveSettings() {
-	dir, _ := os.UserConfigDir()
-	appDir := filepath.Join(dir, "socks-client-desktop")
-	os.MkdirAll(appDir, 0755)
+	exePath, _ := os.Executable()
 	data, _ := json.MarshalIndent(a.settings, "", "  ")
-	os.WriteFile(filepath.Join(appDir, settingFile), data, 0644)
+	os.WriteFile(filepath.Join(filepath.Dir(exePath), "settings.json"), data, 0644)
 }
 
-// ─── Config ────────────────────────────────────────────────
+// ─── UI ───────────────────────────────────────────────
 
-func generateConfig(host string, port int, user, pass string) map[string]interface{} {
-	outbound := map[string]interface{}{
-		"type": "socks", "tag": "socks-out",
-		"server": host, "server_port": port, "version": "5",
-	}
-	if user != "" {
-		outbound["username"] = user
-		if pass != "" {
-			outbound["password"] = pass
-		}
-	}
-	return map[string]interface{}{
-		"log": map[string]interface{}{"level": "warn"},
-		"dns": map[string]interface{}{
-			"servers": []map[string]interface{}{
-				{"tag": "remote", "address": "tcp://8.8.8.8", "detour": "socks-out"},
-				{"tag": "local", "address": "1.1.1.1", "detour": "direct"},
-			},
-			"rules":    []map[string]interface{}{{"outbound": "any", "server": "local"}},
-			"strategy": "prefer_ipv4",
+func (a *App) runUI() {
+	var hostEdit, portEdit, userEdit, passEdit *walk.LineEdit
+	var connectBtn, disconnBtn *walk.PushButton
+	var statusLabel, dlLabel, ulLabel *walk.Label
+	var trafficCB, trayCB *walk.CheckBox
+	var logoView *walk.ImageView
+
+	a.mw = new(walk.MainWindow)
+
+	MainWindow{
+		AssignTo: &a.mw,
+		Title:    appName + " v" + appVersion,
+		MinSize:  Size{Width: 380, Height: 620},
+		Size:     Size{Width: 380, Height: 620},
+		Layout:   VBox{MarginsZero: true, SpacingZero: true},
+		MenuItems: []MenuItem{
+			Menu{Text: "&File", Items: []MenuItem{
+				Action{Text: "E&xit", OnTriggered: func() { a.exitApp() }},
+			}},
 		},
-		"inbounds": []map[string]interface{}{{
-			"type": "tun", "tag": "tun-in", "interface_name": "socks-tun",
-			"address": []string{"172.19.0.1/30", "fdfe:dcba:9876::1/126"},
-			"mtu": 1400, "auto_route": true, "strict_route": false,
-			"stack": "system", "sniff": true,
-		}},
-		"outbounds": []interface{}{
-			outbound,
-			map[string]interface{}{"type": "direct", "tag": "direct"},
-			map[string]interface{}{"type": "block", "tag": "block"},
+		Children: []Widget{
+			ImageView{AssignTo: &logoView, Mode: ImageViewModeZoom, MaxSize: Size{Width: 300, Height: 120}, Margin: 10},
+			Composite{Layout: VBox{Margins: Margins{Left: 10, Right: 10}}, Children: []Widget{
+				Label{Text: "🧦 " + appName, Font: Font{Family: "Segoe UI", PointSize: 14, Bold: true}, Alignment: AlignHCenterVCenter},
+				Label{Text: "by JhopanStore", Font: Font{Family: "Segoe UI", PointSize: 10, Bold: true, Italic: true}, Alignment: AlignHCenterVCenter},
+				Label{Text: "v" + appVersion + " — Powered by sing-box", Font: Font{Family: "Segoe UI", PointSize: 8}, Alignment: AlignHCenterVCenter},
+			}},
+			Composite{Layout: Grid{Columns: 2, Margins: Margins{Left: 15, Top: 10, Right: 15, Bottom: 5}, Spacing: 6}, Children: []Widget{
+				Label{Text: "Host:", Font: Font{Family: "Segoe UI", PointSize: 9}},
+				LineEdit{AssignTo: &hostEdit, Text: a.settings.Host, Font: Font{Family: "Segoe UI", PointSize: 9}},
+				Label{Text: "Port:", Font: Font{Family: "Segoe UI", PointSize: 9}},
+				LineEdit{AssignTo: &portEdit, Text: strconv.Itoa(a.settings.Port), Font: Font{Family: "Segoe UI", PointSize: 9}},
+				Label{Text: "User:", Font: Font{Family: "Segoe UI", PointSize: 9}},
+				LineEdit{AssignTo: &userEdit, Text: a.settings.User, Font: Font{Family: "Segoe UI", PointSize: 9}},
+				Label{Text: "Pass:", Font: Font{Family: "Segoe UI", PointSize: 9}},
+				LineEdit{AssignTo: &passEdit, Text: a.settings.Pass, PasswordMode: true, Font: Font{Family: "Segoe UI", PointSize: 9}},
+			}},
+			Composite{Layout: VBox{Margins: Margins{Left: 15, Top: 5, Right: 15, Bottom: 5}}, Children: []Widget{
+				CheckBox{AssignTo: &trafficCB, Text: "Traffic Counter", Checked: a.settings.Traffic, Font: Font{Family: "Segoe UI", PointSize: 9},
+					OnCheckedChanged: func() { a.trafficEnabled = trafficCB.Checked() }},
+				Composite{Layout: HBox{MarginsZero: true, Spacing: 20}, Children: []Widget{
+					Label{AssignTo: &dlLabel, Text: "↓ 0 B", Font: Font{Family: "Consolas", PointSize: 10, Bold: true}},
+					Label{AssignTo: &ulLabel, Text: "↑ 0 B", Font: Font{Family: "Consolas", PointSize: 10, Bold: true}},
+				}},
+			}},
+			Composite{Layout: VBox{Margins: Margins{Left: 15, Top: 5, Right: 15, Bottom: 5}}, Children: []Widget{
+				CheckBox{AssignTo: &trayCB, Text: "Minimize to tray when closed", Checked: a.settings.Tray, Font: Font{Family: "Segoe UI", PointSize: 9},
+					OnCheckedChanged: func() { a.trayEnabled = trayCB.Checked() }},
+			}},
+			Composite{Layout: VBox{Margins: Margins{Left: 15, Top: 5, Right: 15, Bottom: 5}, Spacing: 6}, Children: []Widget{
+				PushButton{AssignTo: &connectBtn, Text: "Connect Socks VPN", Font: Font{Family: "Segoe UI", PointSize: 10, Bold: true},
+					OnClicked: func() {
+						a.hostEdit, a.portEdit, a.userEdit, a.passEdit = hostEdit, portEdit, userEdit, passEdit
+						a.connectBtn, a.disconnBtn = connectBtn, disconnBtn
+						a.statusLabel, a.dlLabel, a.ulLabel = statusLabel, dlLabel, ulLabel
+						a.trafficCB, a.trayCB = trafficCB, trayCB
+						a.doConnect()
+					}},
+				PushButton{AssignTo: &disconnBtn, Text: "Disconnect", Enabled: false, Font: Font{Family: "Segoe UI", PointSize: 10},
+					OnClicked: func() {
+						a.disconnBtn, a.connectBtn = disconnBtn, connectBtn
+						a.statusLabel, a.dlLabel, a.ulLabel = statusLabel, dlLabel, ulLabel
+						a.doDisconnect()
+					}},
+			}},
+			Composite{Layout: HBox{Margins: Margins{Left: 15, Top: 5, Right: 15, Bottom: 5}, Spacing: 6}, Children: []Widget{
+				PushButton{Text: "Cara Pakai", Font: Font{Family: "Segoe UI", PointSize: 9}, OnClicked: func() { a.showHowTo() }},
+				PushButton{Text: "Social Media", Font: Font{Family: "Segoe UI", PointSize: 9}, OnClicked: func() { a.showSocial() }},
+			}},
+			Composite{Layout: VBox{Margins: Margins{Left: 15, Top: 10, Right: 15, Bottom: 10}}, Children: []Widget{
+				Label{AssignTo: &statusLabel, Text: "Status: Disconnected", Font: Font{Family: "Segoe UI", PointSize: 9}, Alignment: AlignHCenterVCenter},
+			}},
 		},
-		"route": map[string]interface{}{
-			"auto_detect_interface": true,
-			"rules":                 []map[string]interface{}{{"outbound": "socks-out"}},
-		},
+	}.Create()
+
+	a.hostEdit, a.portEdit, a.userEdit, a.passEdit = hostEdit, portEdit, userEdit, passEdit
+	a.connectBtn, a.disconnBtn = connectBtn, disconnBtn
+	a.statusLabel, a.dlLabel, a.ulLabel = statusLabel, dlLabel, ulLabel
+	a.trafficCB, a.trayCB = trafficCB, trayCB
+
+	// Set window icon (taskbar) from ICO
+	if ico, err := walk.NewIconFromFile(trayIconPath); err == nil {
+		a.mw.SetIcon(ico)
 	}
-}
 
-// ─── Traffic ───────────────────────────────────────────────
+	// Window close → minimize to tray
+	a.mw.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
+		if a.trayEnabled {
+			*canceled = true
+			win.ShowWindow(a.mw.Handle(), win.SW_HIDE)
+			a.windowVisible = false
+		}
+	})
 
-func readTunTraffic(tunName string) (int64, int64) {
-	switch runtime.GOOS {
-	case "linux":
-		rx, _ := readIntFile(fmt.Sprintf("/sys/class/net/%s/statistics/rx_bytes", tunName))
-		tx, _ := readIntFile(fmt.Sprintf("/sys/class/net/%s/statistics/tx_bytes", tunName))
-		return rx, tx
-	case "windows":
-		out, err := exec.Command("powershell", "-Command",
-			fmt.Sprintf("Get-NetAdapterStatistics -Name '*%s*','*Wintun*' -EA SilentlyContinue | select -First 1 | %% { $_.ReceivedBytes.ToString()+' '+$_.SentBytes.ToString() }", tunName),
-		).Output()
-		if err != nil {
-			return 0, 0
-		}
-		parts := strings.Fields(string(out))
-		if len(parts) >= 2 {
-			rx, _ := strconv.ParseInt(parts[0], 10, 64)
-			tx, _ := strconv.ParseInt(parts[1], 10, 64)
-			return rx, tx
-		}
-	case "darwin":
-		out, err := exec.Command("netstat", "-ibn").Output()
-		if err != nil {
-			return 0, 0
-		}
-		for _, line := range strings.Split(string(out), "\n") {
-			if strings.Contains(line, tunName) || strings.Contains(strings.ToLower(line), "utun") {
-				parts := strings.Fields(line)
-				if len(parts) >= 10 {
-					rx, _ := strconv.ParseInt(parts[6], 10, 64)
-					tx, _ := strconv.ParseInt(parts[9], 10, 64)
-					return rx, tx
-				}
-			}
+	// Load logo banner
+	if logoView != nil {
+		if bmp, err := walk.NewBitmapFromFile(logoPath); err == nil {
+			logoView.SetImage(bmp)
 		}
 	}
-	return 0, 0
+
+	// Start system tray in background goroutine
+	go a.startTray()
+
+	go a.pollTraffic()
+	a.mw.Run()
 }
 
-func readIntFile(path string) (int64, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return 0, err
-	}
-	return strconv.ParseInt(strings.TrimSpace(string(data)), 10, 64)
-}
+// ─── System Tray ──────────────────────────────────────
 
-// ─── Windows helper ────────────────────────────────────────
-
-func windowsSysProcAttr() syscall.SysProcAttr {
-	return syscall.SysProcAttr{HideWindow: true}
-}
-
-// ─── Set window icon via Win32 API ──────────────────────────
-
-func setWindowIcon(hwnd unsafe.Pointer) {
-	if hwnd == nil {
+func (a *App) startTray() {
+	if a.trayStarted {
 		return
 	}
-	// Extract ICO to temp file
-	icoPath := filepath.Join(os.TempDir(), "socks-client-icon.ico")
-	os.WriteFile(icoPath, trayIconData, 0644)
+	a.trayStarted = true
 
-	user32 := syscall.NewLazyDLL("user32.dll")
-	sendMessage := user32.NewProc("SendMessageW")
-	loadImage := user32.NewProc("LoadImageW")
+	systray.Run(func() {
+		icoData, _ := os.ReadFile(trayIconPath)
+		systray.SetIcon(icoData)
+		systray.SetTitle(appName)
+		systray.SetTooltip(appName + " v" + appVersion + "\nby JhopanStore")
 
-	// WM_SETICON = 0x0080
-	// ICON_SMALL = 0, ICON_BIG = 1
-	// LR_LOADFROMFILE = 0x0010, IMAGE_ICON = 1
-	const (
-		WM_SETICON       = 0x0080
-		ICON_SMALL       = 0
-		ICON_BIG         = 1
-		IMAGE_ICON       = 1
-		LR_LOADFROMFILE  = 0x0010
-	)
+		mShow := systray.AddMenuItem("🪟 Show Window", "")
+		systray.AddSeparator()
+		mConnect := systray.AddMenuItem("🔗 Connect", "")
+		mDisconnect := systray.AddMenuItem("⛔ Disconnect", "")
+		systray.AddSeparator()
+		mExit := systray.AddMenuItem("❌ Exit", "")
 
-	icoPathW, _ := syscall.UTF16PtrFromString(icoPath)
+		mShow.Click(func() { a.showFromTray() })
+		systray.SetOnDClick(func(menu systray.IMenu) { a.showFromTray() })
+		mConnect.Click(func() { a.mw.Synchronize(func() { a.doConnect() }) })
+		mDisconnect.Click(func() { a.mw.Synchronize(func() { a.doDisconnect() }) })
+		mExit.Click(func() { a.exitApp() })
+	}, func() {})
+}
 
-	// Load big icon (32x32)
-	bigIcon, _, _ := loadImage.Call(0, uintptr(unsafe.Pointer(icoPathW)), IMAGE_ICON, 32, 32, LR_LOADFROMFILE)
-	if bigIcon != 0 {
-		sendMessage.Call(uintptr(hwnd), WM_SETICON, ICON_BIG, bigIcon)
+func (a *App) showFromTray() {
+	if a.mw == nil {
+		return
+	}
+	a.mw.Synchronize(func() {
+		win.ShowWindow(a.mw.Handle(), win.SW_RESTORE)
+		win.SetForegroundWindow(a.mw.Handle())
+		a.windowVisible = true
+	})
+}
+
+func (a *App) exitApp() {
+	if a.connected {
+		if walk.MsgBox(a.mw, "Confirm", "VPN connected. Disconnect and exit?",
+			walk.MsgBoxYesNo|walk.MsgBoxIconQuestion) == 7 {
+			return
+		}
+		a.killProcess()
+	}
+	systray.Quit()
+	a.trayEnabled = false
+	a.mw.Close()
+	os.Exit(0)
+}
+
+// ─── Connect / Disconnect ─────────────────────────────
+
+func (a *App) doConnect() {
+	host := a.hostEdit.Text()
+	port := a.portEdit.Text()
+	user := a.userEdit.Text()
+	pass := a.passEdit.Text()
+
+	if host == "" {
+		walk.MsgBox(a.mw, "Error", "Host cannot be empty", walk.MsgBoxIconWarning)
+		return
+	}
+	portNum, err := strconv.Atoi(port)
+	if err != nil || portNum < 1 || portNum > 65535 {
+		walk.MsgBox(a.mw, "Error", "Invalid port", walk.MsgBoxIconWarning)
+		return
 	}
 
-	// Load small icon (16x16)
-	smallIcon, _, _ := loadImage.Call(0, uintptr(unsafe.Pointer(icoPathW)), IMAGE_ICON, 16, 16, LR_LOADFROMFILE)
-	if smallIcon != 0 {
-		sendMessage.Call(uintptr(hwnd), WM_SETICON, ICON_SMALL, smallIcon)
+	a.settings = Settings{Host: host, Port: portNum, User: user, Pass: pass, Traffic: a.trafficCB.Checked(), Tray: a.trayCB.Checked()}
+	a.saveSettings()
+	a.statusLabel.SetText("Status: Connecting...")
+	a.connectBtn.SetEnabled(false)
+
+	go func() {
+		errMsg := a.connectVPN(host, port, user, pass)
+		a.mw.Synchronize(func() {
+			if errMsg != "" {
+				a.statusLabel.SetText("Status: " + errMsg)
+				a.connectBtn.SetEnabled(true)
+			} else {
+				a.connected = true
+				a.statusLabel.SetText(fmt.Sprintf("Status: Connected ✓ %s:%s", host, port))
+				a.connectBtn.SetEnabled(false)
+				a.disconnBtn.SetEnabled(true)
+			}
+		})
+	}()
+}
+
+func (a *App) connectVPN(host, port, user, pass string) string {
+	binPath := filepath.Join(a.appDir, "sing-box.exe")
+	if _, err := os.Stat(binPath); os.IsNotExist(err) {
+		data, err := embeddedFiles.ReadFile("embed/sing-box.exe")
+		if err != nil {
+			return "Extract sing-box failed"
+		}
+		os.WriteFile(binPath, data, 0755)
+	}
+
+	portNum, _ := strconv.Atoi(port)
+	config := map[string]interface{}{
+		"log":    map[string]interface{}{"disabled": false, "level": "info"},
+		"inbounds": []map[string]interface{}{{
+			"type": "tun", "interface": "sb-tun",
+			"address": []string{"172.19.0.1/30"}, "mtu": 9000,
+			"auto_route": true, "strict_route": false, "stack": "system", "sniff": true,
+		}},
+		"outbounds": []map[string]interface{}{{
+			"type": "socks", "tag": "socks-out",
+			"server": host, "server_port": portNum,
+			"username": user, "password": pass, "version": "5",
+		}},
+	}
+
+	configPath := filepath.Join(a.appDir, "config.json")
+	data, _ := json.MarshalIndent(config, "", "  ")
+	os.WriteFile(configPath, data, 0644)
+
+	cmd := exec.Command(binPath, "run", "-c", configPath, "-D", a.appDir)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	if err := cmd.Start(); err != nil {
+		return "Start failed: " + err.Error()
+	}
+	a.mu.Lock()
+	a.process = cmd
+	a.mu.Unlock()
+	return ""
+}
+
+func (a *App) doDisconnect() {
+	a.killProcess()
+	a.connected = false
+	a.statusLabel.SetText("Status: Disconnected")
+	a.connectBtn.SetEnabled(true)
+	a.disconnBtn.SetEnabled(false)
+	a.dlLabel.SetText("↓ 0 B")
+	a.ulLabel.SetText("↑ 0 B")
+}
+
+func (a *App) killProcess() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.process != nil && a.process.Process != nil {
+		a.process.Process.Kill()
+		a.process.Wait()
+		a.process = nil
 	}
 }
 
-// ─── HTML UI ───────────────────────────────────────────────
-
-func htmlContent() string {
-	logoImg := "data:image/png;base64," + logoBase64
-	return strings.Replace(htmlTemplate, "{{LOGO_IMG}}", logoImg, 1)
+func (a *App) pollTraffic() {
+	for {
+		time.Sleep(2 * time.Second)
+		if !a.connected || !a.trafficEnabled {
+			continue
+		}
+	}
 }
 
-var htmlTemplate = `<!DOCTYPE html>
-<html><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<style>
-*{margin:0;padding:0;box-sizing:border-box}
-html,body{height:100%;overflow-x:hidden}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;background:#0e0e12;color:#e8e8ec;user-select:none;-webkit-font-smoothing:antialiased}
-.container{width:100%;padding:14px 18px 16px}
-.logo-area{text-align:center;margin-bottom:8px}
-.logo-area img{max-width:200px;height:auto;border-radius:8px;filter:drop-shadow(0 2px 12px rgba(28,184,98,0.25))}
-.title{font-size:19px;font-weight:700;text-align:center;letter-spacing:-0.3px;color:#ffffff}
-.subtitle{font-size:11px;color:#999;text-align:center;margin-bottom:14px}
-.field{background:#1a1a22;border-radius:10px;padding:10px 14px;margin-bottom:7px;border:1px solid #2a2a34;transition:border-color .2s}
-.field:focus-within{border-color:#1cb862}
-.field label{font-size:10px;color:#999;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:3px}
-.field input{width:100%;background:transparent;border:none;color:#ffffff;font-size:14px;outline:none;font-family:inherit;font-weight:500}
-.field input::placeholder{color:#555}
-.traffic-box{background:#1a1a22;border-radius:10px;padding:10px 13px;margin:8px 0;border:1px solid #2a2a34}
-.traffic-toggle{display:flex;align-items:center;gap:10px;margin-bottom:6px}
-.traffic-toggle span{font-size:12px}
-.switch{position:relative;width:38px;height:20px;flex-shrink:0}
-.switch input{opacity:0;width:0;height:0}
-.slider{position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background:#3a3a44;border-radius:20px;transition:.3s}
-.slider:before{content:"";position:absolute;height:14px;width:14px;left:3px;bottom:3px;background:white;border-radius:50%;transition:.3s}
-input:checked+.slider{background:#1cb862}
-input:checked+.slider:before{transform:translateX(18px)}
-.traffic-stats{display:flex;justify-content:space-between}
-.stat{font-family:'Consolas','Courier New',monospace;font-size:13px}
-.stat.dl{color:#4caf50}.stat.ul{color:#42a5f5}
-.btn{width:100%;padding:11px;border:none;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;margin-bottom:6px;font-family:inherit;transition:all .15s}
-.btn:hover{opacity:0.88}.btn:active{opacity:0.7}
-.btn:disabled{opacity:0.35;cursor:not-allowed}
-.btn-connect{background:linear-gradient(135deg,#1cb862,#15a055);color:white}
-.btn-disconnect{background:linear-gradient(135deg,#dc3c3c,#c03030);color:white}
-.btn-guide{background:#466e82;color:white}
-.btn-social{background:#2a2a36;color:#aaa;font-size:12px}
-.status{text-align:center;font-size:13px;font-weight:600;margin:10px 0 4px;padding:8px;border-radius:8px;background:#1a1a22;border:1px solid #2a2a34}
-.status.connected{color:#1cb862;border-color:#1cb86233}
-.status.error{color:#dc3c3c;border-color:#dc3c3c33}
-.footer{text-align:center;font-size:9px;color:#666;margin-top:6px}
-.modal-overlay{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.8);z-index:100;justify-content:center;align-items:center}
-.modal-overlay.active{display:flex}
-.modal{background:#252529;border-radius:14px;padding:18px;max-width:320px;width:90%;max-height:80vh;overflow-y:auto;border:1px solid #444}
-.modal h2{font-size:15px;margin-bottom:10px;color:#f0f0f2}
-.modal p{font-size:12px;line-height:1.7;color:#bbb;margin-bottom:5px}
-.modal .close-btn{width:100%;padding:9px;background:#466e82;color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;margin-top:10px;font-family:inherit;font-weight:600}
-.modal .close-btn:hover{background:#5a8296}
-</style></head><body>
-<div class="container">
-  <div class="logo-area"><img src="{{LOGO_IMG}}" alt="Logo"></div>
-  <div class="title">Socks Client Desktop</div>
-  <div class="subtitle">Client VPN untuk SOCKS5 server hotspot</div>
-  <div class="field"><label>HOST / IP</label><input id="host" type="text" placeholder="192.168.1.10"></div>
-  <div class="field"><label>PORT</label><input id="port" type="number" placeholder="1080"></div>
-  <div class="field"><label>USERNAME (opsional)</label><input id="user" type="text" placeholder=""></div>
-  <div class="field"><label>PASSWORD (opsional)</label><input id="pass" type="password" placeholder=""></div>
-  <div class="traffic-box">
-    <div class="traffic-toggle">
-      <label class="switch"><input type="checkbox" id="trafficToggle" checked><span class="slider"></span></label>
-      <span>Traffic Counter</span>
-    </div>
-    <div class="traffic-stats">
-      <span class="stat dl" id="dlStat">↓ 0 B</span>
-      <span class="stat ul" id="ulStat">↑ 0 B</span>
-    </div>
-  </div>
-  <div class="traffic-box" style="margin-top:4px">
-    <div class="traffic-toggle">
-      <label class="switch"><input type="checkbox" id="trayToggle"><span class="slider"></span></label>
-      <span>🗂️ Minimize to Tray saat ditutup</span>
-    </div>
-  </div>
-  <button class="btn btn-connect" id="connectBtn" onclick="doConnect()">🔗 Connect Socks VPN</button>
-  <button class="btn btn-disconnect" id="disconnectBtn" onclick="doDisconnect()" disabled>⛔ Disconnect</button>
-  <button class="btn btn-guide" onclick="showModal('guideModal')">📖 Cara Pakai</button>
-  <button class="btn btn-social" onclick="showModal('socialModal')">🌐 JhopanStore — Social Media</button>
-  <div class="status" id="statusBar">Status: Disconnected</div>
-  <div class="footer">v1.0.0 — Powered by sing-box</div>
-</div>
-<div class="modal-overlay" id="guideModal" onclick="if(event.target===this)closeModal('guideModal')">
-  <div class="modal">
-    <h2>📖 Panduan Socks Client</h2>
-    <p><b>1)</b> Pastikan HP server menjalankan <b>VPN Hospot</b> app.</p>
-    <p><b>2)</b> Hubungkan PC ke hotspot/USB tether server.</p>
-    <p><b>3)</b> Isi Host/IP server, Port (default 1080).</p>
-    <p><b>4)</b> Klik <b>Connect Socks VPN</b>.</p>
-    <p><b>5)</b> Izinkan admin/root saat diminta.</p>
-    <p><b>6)</b> Semua traffic PC lewat SOCKS5! ✓</p>
-    <p style="margin-top:8px"><b>⚠️ Admin/Root Required:</b></p>
-    <p>• Windows: Klik kanan → Run as Administrator</p>
-    <p>• macOS/Linux: sudo ./socks-client</p>
-    <button class="close-btn" onclick="closeModal('guideModal')">Tutup</button>
-  </div>
-</div>
-<div class="modal-overlay" id="socialModal" onclick="if(event.target===this)closeModal('socialModal')">
-  <div class="modal">
-    <h2>🌐 JhopanStore</h2>
-    <p>📱 <b>Telegram:</b> @JhopanStore</p>
-    <p>📸 <b>Instagram:</b> @jhopanstore</p>
-    <p>🎬 <b>YouTube:</b> JhopanStore</p>
-    <p style="margin-top:8px"><b>GitHub:</b></p>
-    <p>• github.com/jhopan/VpnHospotByJhopanStore</p>
-    <p>• github.com/jhopan/SocksClientByJhopanStore</p>
-    <button class="close-btn" onclick="closeModal('socialModal')">Tutup</button>
-  </div>
-</div>
-<script>
-let connected=false,trafficEnabled=true;
-async function init(){try{const s=JSON.parse(await goGetSettings());document.getElementById('host').value=s.host||'';document.getElementById('port').value=s.port||1080;document.getElementById('user').value=s.user||'';document.getElementById('pass').value=s.pass||'';document.getElementById('trafficToggle').checked=s.traffic!==false;trafficEnabled=s.traffic!==false;document.getElementById('trayToggle').checked=s.tray===true}catch(e){}pollTraffic()}
-async function doConnect(){const h=document.getElementById('host').value,p=document.getElementById('port').value,u=document.getElementById('user').value,ps=document.getElementById('pass').value,tr=document.getElementById('trayToggle').checked;await goSaveSettings(JSON.stringify({host:h,port:parseInt(p),user:u,pass:ps,traffic:trafficEnabled,tray:tr}));document.getElementById('connectBtn').disabled=true;setStatus('Connecting...','');const e=await goConnect(h,String(p),u,ps);if(e){setStatus('Error: '+e,'error');document.getElementById('connectBtn').disabled=false}else{connected=true;setStatus('Connected ✓ '+h+':'+p,'connected');document.getElementById('connectBtn').disabled=true;document.getElementById('disconnectBtn').disabled=false}}
-async function doDisconnect(){await goDisconnect();connected=false;setStatus('Disconnected','');document.getElementById('connectBtn').disabled=false;document.getElementById('disconnectBtn').disabled=true;document.getElementById('dlStat').textContent='↓ 0 B';document.getElementById('ulStat').textContent='↑ 0 B'}
-function setStatus(t,c){const e=document.getElementById('statusBar');e.textContent='Status: '+t;e.className='status '+c}
-async function pollTraffic(){while(true){await new Promise(r=>setTimeout(r,2000));if(!connected||!trafficEnabled)continue;try{const t=JSON.parse(await goGetTraffic());document.getElementById('dlStat').textContent='↓ '+hb(t.download);document.getElementById('ulStat').textContent='↑ '+hb(t.upload)}catch(e){}}}
-function hb(b){if(!b)return'0 B';const u=['B','KB','MB','GB','TB'];let i=0;while(b>=1024&&i<u.length-1){b/=1024;i++}return(i===0?b:b.toFixed(2))+' '+u[i]}
-document.getElementById('trafficToggle').addEventListener('change',function(){trafficEnabled=this.checked;goToggleTraffic(this.checked);if(!this.checked){document.getElementById('dlStat').textContent='↓ —';document.getElementById('ulStat').textContent='↑ —'}});
-document.getElementById('trayToggle').addEventListener('change',function(){goSetTray(this.checked)});
-function showModal(id){document.getElementById(id).classList.add('active')}
-function closeModal(id){document.getElementById(id).classList.remove('active')}
-init();
-</script></body></html>`
+func (a *App) showHowTo() {
+	walk.MsgBox(a.mw, "Cara Pakai",
+		"1. Pastikan HP server menjalankan VPN Hospot\n"+
+			"2. Hubungkan PC ke hotspot server\n"+
+			"3. Isi Host, Port, User, Pass\n"+
+			"4. Klik Connect Socks VPN ✓", walk.MsgBoxIconInformation)
+}
+
+func (a *App) showSocial() {
+	walk.MsgBox(a.mw, "Social Media",
+		"📱 Telegram: @JhopanStore\n📸 Instagram: @jhopanstore\n🎬 YouTube: JhopanStore",
+		walk.MsgBoxIconInformation)
+}

@@ -1,13 +1,14 @@
 # Binaries
 socks-client.exe
-socks-client-upx.exe
+socks-client-32.exe
 
-# Embedded sing-box (download separately)
-embed/sing-box.exe
+# Build artifacts
+installer_output/
 
 # Auto-generated
 settings.json
-socks_client_config.json
+config.json
+.lock
 
 # OS
 .DS_Store

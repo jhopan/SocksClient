@@ -8,94 +8,76 @@ Tersedia untuk **Android** dan **Windows Desktop**.
 
 ## 📱 Android
 
-APK Socks Client untuk perangkat Android.
+APK Socks Client untuk Android.
 
-### Download
-
-| Arsitektur | Ukuran | Link |
-|-----------|--------|------|
-| arm64-v8a | ~18 MB | [Release](../../releases) |
-| armeabi-v7a | ~17 MB | [Release](../../releases) |
-| Universal | ~34 MB | [Release](../../releases) |
-
-### Cara Pakai
-1. Pastikan HP server menjalankan **VPN Hospot** app
-2. Hubungkan HP client ke hotspot/USB tether server
-3. Buka Socks Client, isi Host/IP server dan Port (default 1080)
-4. Klik **Connect Socks VPN**
-5. Izinkan koneksi VPN
-6. Semua traffic HP client kini lewat SOCKS5! ✓
-
-### Build dari Source
+### Build
 ```bash
 cd android
 ./gradlew assembleRelease
 ```
 
+### Download
+Cek [Releases](../../releases) untuk APK terbaru.
+
 ---
 
 ## 💻 Desktop (Windows)
 
-Aplikasi desktop ringan untuk Windows, powered by **Go + WebView2 + sing-box**.
+Aplikasi desktop ringan menggunakan **Go + Walk (Win32 Native)** + **sing-box** sebagai core VPN.
 
-### Download
+### Fitur
+- 🧦 SOCKS5 VPN via sing-box core (bundled)
+- 🖥️ UI native Win32 (Walk) — ringan, tanpa WebView2
+- 🗂️ System tray — close window masuk ke tray
+- 🔒 Single instance — tidak bisa buka 2x
+- 📊 Traffic counter
+- ⚡ RAM ~12MB, file ~12MB
+- ✅ Kompatibel Windows 32-bit & 64-bit
 
-| File | Ukuran | Keterangan |
-|------|--------|------------|
-| `SocksClientDesktop_Setup.exe` | ~11 MB | Installer (Inno Setup) — **Recommended** |
-| `socks-client.exe` | ~11 MB | Portable (single file) |
+### Struktur
+```
+desktop/
+├── main.go              ← Semua kode (UI + logic + tray)
+├── go.mod / go.sum
+├── app.ico              ← Logo socks (ICO untuk taskbar + tray)
+├── app.manifest         ← Admin manifest
+├── app.rc               ← Resource script
+├── rsrc_windows_amd64.syso
+├── setup.iss            ← Inno Setup script
+├── embed/
+│   ├── sing-box.exe     ← Core VPN (Git LFS)
+│   ├── app.ico          ← Logo socks (embedded)
+│   └── logo_store.png   ← Banner JhopanStore
+└── .gitignore
+```
 
-### System Requirements
-- Windows 10/11 (64-bit)
-- WebView2 Runtime (sudah built-in di Windows 11)
-- Admin privileges (untuk TUN interface)
-
-### Cara Pakai
-1. Download dan jalankan installer (atau portable .exe)
-2. App otomatis minta **Admin privileges**
-3. Isi Host/IP server, Port (default 1080)
-4. Klik **Connect Socks VPN**
-5. Semua traffic PC kini lewat SOCKS5! ✓
-
-### Fitur Desktop
-- 🪟 **Modern UI** — Dark theme, responsive
-- 🗂️ **System Tray** — Minimize ke tray, connect/disconnect dari tray menu
-- 📊 **Traffic Counter** — Monitor download/upload realtime
-- 🔒 **Single .exe** — 11MB, zero dependencies (WebView2 built-in)
-- ⚡ **Super Ringan** — RAM ~22MB (Go backend)
-- 🪪 **Taskbar Icon** — Logo Socks Client
-
-### Build dari Source
-
-**Requirements:**
-- Go 1.21+
-- MinGW (GCC) untuk windres
-
+### Build dari source
 ```bash
 cd desktop
 
-# Build
+# 64-bit
 go build -ldflags="-s -w -H windowsgui" -o socks-client.exe .
 
-# Compress dengan UPX (opsional)
-upx --best --lzma socks-client.exe
+# 32-bit (kompatibel semua Windows)
+GOOS=windows GOARCH=386 CGO_ENABLED=1 go build -ldflags="-s -w -H windowsgui" -o socks-client-32.exe .
 
-# Build installer (butuh Inno Setup)
-# Compile setup.iss dengan Inno Setup Compiler
+# Compress (opsional)
+upx --best --lzma socks-client-32.exe
 ```
+
+### Build Installer
+1. Install [Inno Setup 6](https://jrsoftware.org/isdl.php)
+2. Buka `desktop/setup.iss`
+3. Build → Compile (Ctrl+F9)
+4. Output: `installer_output/SocksClientDesktop_Setup_v1.0.0.exe`
+
+### Install
+Download installer dari [Releases](../../releases) atau build dari source.
+
+> ⚠️ **Butuh Admin** — App memerlukan hak admin untuk membuat TUN interface (sing-box).
 
 ---
 
-## 🌐 Social Media
+## 📄 Lisensi
 
-- 📱 **Telegram:** [@JhopanStore](https://t.me/JhopanStore)
-- 📸 **Instagram:** @jhopanstore
-- 🎬 **YouTube:** JhopanStore
-
-## 📦 Related Projects
-
-- [VPN Hospot by JhopanStore](https://github.com/jhopan/VpnHospotByJhopanStore) — Server SOCKS5 untuk Android
-
-## 📄 License
-
-MIT License — Free for personal and commercial use.
+Open Source — JhopanStore
