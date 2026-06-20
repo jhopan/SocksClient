@@ -9,7 +9,7 @@ import android.content.SharedPreferences;
 import android.net.VpnService;
 import android.os.Build;
 import android.os.ParcelFileDescriptor;
-import android.util.Log;
+// import android.util.Log;
 
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicLong;
@@ -642,11 +642,11 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
     }
 
     private void logI(String m) {
-        Log.i(TAG, m);
+        // Log.i(TAG, m);
     }
 
     private void logE(String m, Throwable t) {
-        Log.e(TAG, m, t);
+        // Log.e(TAG, m, t);
     }
 
     // ══════════════════════════════════════════════

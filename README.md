@@ -1,5 +1,7 @@
 # 🧦 Socks Client by JhopanStore
 
+**v1.1.0** | APK Size: **7.4MB** (57% smaller) | Install Size: ~29MB
+
 Client VPN SOCKS5 untuk menghubungkan perangkat ke server SOCKS5 hotspot.
 
 Tersedia untuk **Android** dan **Windows Desktop**.
@@ -8,7 +10,34 @@ Tersedia untuk **Android** dan **Windows Desktop**.
 
 ## 📱 Android
 
-APK Socks Client untuk Android.
+APK Socks Client untuk Android (SOCKS5 VPN Client).
+
+### Fitur
+- 🧦 SOCKS5 VPN via sing-box core (TCP + UDP)
+- 🔒 DNS remote via tunnel (anti DNS leak)
+- 🛡️ Anti routing loop (bind_interface + bypass rule)
+- ⚡ Ultra lightweight (7.4MB APK, ~29MB install)
+- 🎯 Protocol sniffing (HTTP/TLS/QUIC)
+- 🌐 IPv4 support (IPv6 blocked via DNS strategy)
+- 📊 Info Developer dialog (Telegram, Website, Trakteer)
+
+### Changelog
+
+#### v1.1.0 (2026-06-20)
+**Size Optimization & Bug Fixes**
+- 🔥 **Recompile sing-box v1.10.6** dengan custom tags (only `with_gvisor`)
+- 📉 APK size reduced **57%**: 17MB → 7.4MB
+- 📉 libbox.so reduced **58%**: 52MB → 21.9MB (arm64-v8a)
+- 🐛 Fix disconnect bug (clear last_seen timestamp)
+- 🐛 Fix connect failed (remove IPv6 action rule for v1.10.x compatibility)
+- ✨ Add Info Developer dialog with 3 colored buttons
+- 📝 Enable/disable logging for production build
+
+#### v1.0.0 (2026-06-20)
+- Initial release
+- SOCKS5 VPN client with TCP + UDP support
+- Traffic counter
+- Splash screen
 
 ### Build
 ```bash
