@@ -118,7 +118,7 @@ public class MainActivity extends Activity {
         title.setGravity(Gravity.CENTER);
         root.addView(title, matchWrap());
 
-        hostInput = textInput("SOCKS Host/IP", prefs.getString("host", "192.168.1.10"));
+        hostInput = textInput("SOCKS Host/IP", prefs.getString("host", ""));
         portInput = numberInput("SOCKS Port", prefs.getInt("port", 1080));
         userInput = textInput("Username (opsional)", prefs.getString("user", ""));
         passInput = textInput("Password (opsional)", prefs.getString("pass", ""));
@@ -141,58 +141,9 @@ public class MainActivity extends Activity {
         statusText = text("", 15, true, TEXT_PRIMARY);
         root.addView(statusText, marginTop(matchWrap(), 18));
 
-        // ── Traffic Counter Card ──
-        trafficCard = buildTrafficCard();
-        root.addView(trafficCard, marginTop(matchWrap(), 14));
-
         return scroll;
     }
 
-    private LinearLayout buildTrafficCard() {
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setBackgroundColor(CARD);
-        card.setPadding(dp(14), dp(12), dp(14), dp(12));
-
-        // Header row: label + switch
-        LinearLayout header = new LinearLayout(this);
-        header.setOrientation(LinearLayout.HORIZONTAL);
-        header.setGravity(Gravity.CENTER_VERTICAL);
-
-        TextView label = text("Traffic Counter", 15, true, TEXT_PRIMARY);
-        header.addView(label, new LinearLayout.LayoutParams(0, -2, 1));
-
-        trafficSwitch = new Switch(this);
-        SharedPreferences statusPrefs = getSharedPreferences(STATUS_PREFS, MODE_PRIVATE);
-        trafficSwitch.setChecked(statusPrefs.getBoolean(KEY_TRAFFIC_ENABLED, true));
-        trafficSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
-            getSharedPreferences(STATUS_PREFS, MODE_PRIVATE)
-                    .edit()
-                    .putBoolean(KEY_TRAFFIC_ENABLED, isChecked)
-                    .apply();
-            updateTrafficVisibility(isChecked);
-        });
-        header.addView(trafficSwitch, new LinearLayout.LayoutParams(-2, -2));
-
-        card.addView(header, matchWrap());
-
-        // Upload row
-        uploadText = text("↑  Upload: 0 B", 14, false, ACCENT);
-        uploadText.setTypeface(Typeface.DEFAULT);
-        card.addView(uploadText, marginTop(matchWrap(), 10));
-
-        // Download row
-        downloadText = text("↓  Download: 0 B", 14, false, Color.rgb(72, 199, 142));
-        downloadText.setTypeface(Typeface.DEFAULT);
-        card.addView(downloadText, marginTop(matchWrap(), 4));
-
-        return card;
-    }
-
-    private void updateTrafficVisibility(boolean enabled) {
-        uploadText.setVisibility(enabled ? View.VISIBLE : View.GONE);
-        downloadText.setVisibility(enabled ? View.VISIBLE : View.GONE);
-    }
 
     private void onToggleConnection() {
         SharedPreferences statusPrefs = getSharedPreferences(STATUS_PREFS, MODE_PRIVATE);
@@ -296,38 +247,20 @@ public class MainActivity extends Activity {
     private void refreshUi() {
         SharedPreferences statusPrefs = getSharedPreferences(STATUS_PREFS, MODE_PRIVATE);
         boolean connected = statusPrefs.getBoolean(KEY_CONNECTED, false);
-        String status = statusPrefs.getString(KEY_STATUS, "Belum terkoneksi");
 
         if (connected && !isVpnServiceAlive()) {
             connected = false;
-            status = "VPN process berhenti. Silakan connect ulang.";
-            saveStatus(false, status);
+            saveStatus(false, "Disconnected");
         }
 
-        statusText.setText("Status: " + status);
+        statusText.setText("Status: " + (connected ? "Connected" : "Disconnected"));
 
-        // ── Traffic counter ──
-        boolean trafficEnabled = statusPrefs.getBoolean(KEY_TRAFFIC_ENABLED, true);
-        if (trafficSwitch.isChecked() != trafficEnabled) {
-            trafficSwitch.setChecked(trafficEnabled);
+        boolean connecting = false;
+        String status = statusPrefs.getString(KEY_STATUS, "");
+        if (status != null && status.toLowerCase().contains("connecting")) {
+            connecting = true;
         }
-        updateTrafficVisibility(trafficEnabled);
-
-        if (trafficEnabled && connected) {
-            long up = statusPrefs.getLong(KEY_UPLOAD_BYTES, 0);
-            long down = statusPrefs.getLong(KEY_DOWNLOAD_BYTES, 0);
-            uploadText.setText("↑  Upload: " + formatBytes(up));
-            downloadText.setText("↓  Download: " + formatBytes(down));
-            trafficCard.setVisibility(View.VISIBLE);
-        } else if (!connected) {
-            uploadText.setText("↑  Upload: 0 B");
-            downloadText.setText("↓  Download: 0 B");
-            trafficCard.setVisibility(View.VISIBLE);
-        } else {
-            trafficCard.setVisibility(View.GONE);
-        }
-
-        boolean connecting = status != null && status.toLowerCase().contains("connecting");
+        
         boolean allowDisconnect = connected || connecting || isVpnServiceAlive();
 
         // Merged toggle button: Connect ↔ Disconnect
