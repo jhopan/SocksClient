@@ -9,7 +9,7 @@ import android.content.SharedPreferences;
 import android.net.VpnService;
 import android.os.Build;
 import android.os.ParcelFileDescriptor;
-// import android.util.Log; // all logs commented out
+import android.util.Log;
 
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicLong;
@@ -197,11 +197,12 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
         stopTrafficMonitor();
         disconnectCoreOnly();
         setStatus(false, "Disconnected");
-        // Clear traffic stats on disconnect
+        // Clear traffic stats and last_seen on disconnect
         SharedPreferences sp = getSharedPreferences(PREFS, MODE_PRIVATE);
         sp.edit()
                 .putLong(KEY_UPLOAD_BYTES, 0)
                 .putLong(KEY_DOWNLOAD_BYTES, 0)
+                .putLong(KEY_LAST_SEEN, 0)
                 .apply();
         notifyStatus("Disconnected");
         stopForeground(true);
@@ -641,17 +642,11 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
     }
 
     private void logI(String m) {
-        // if (BuildConfig.DEBUG) {
-        //     Log.i(TAG, m);
-        //     DebugLog.append(this, m);
-        // }
+        Log.i(TAG, m);
     }
 
     private void logE(String m, Throwable t) {
-        // Log.e(TAG, m, t);
-        // if (BuildConfig.DEBUG) {
-        //     DebugLog.append(this, m + ": " + safeMessage(t));
-        // }
+        Log.e(TAG, m, t);
     }
 
     // ══════════════════════════════════════════════
