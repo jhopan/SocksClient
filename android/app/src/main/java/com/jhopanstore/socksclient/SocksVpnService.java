@@ -163,8 +163,8 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
                 connecting = false;
             }
 
-            setStatus(true, "Connected ke SOCKS " + host + ":" + port);
-            notifyStatus("Connected ✓ " + host + ":" + port);
+            setStatus(true, "Connected");
+            notifyStatus("Connected");
             startHeartbeat();
             resetTrafficCounters();
             loadTrafficToggle();
@@ -609,16 +609,10 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
         PendingIntent contentIntent = PendingIntent.getActivity(
                 this, 0, openIntent, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
 
-        String displayText = content;
-        if (trafficCounterEnabled && running) {
-            displayText = content + "  |  ↑ " + formatBytes(uploadBytes.get())
-                    + "  ↓ " + formatBytes(downloadBytes.get());
-        }
-
         return new Notification.Builder(this, CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.stat_sys_upload_done)
-                .setContentTitle("Socks Client VPN")
-                .setContentText(displayText)
+                .setContentTitle("Socks Client")
+                .setContentText(content)
                 .setOngoing(true)
                 .setContentIntent(contentIntent)
                 .build();
