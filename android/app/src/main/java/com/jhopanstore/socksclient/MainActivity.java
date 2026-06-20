@@ -114,19 +114,9 @@ public class MainActivity extends Activity {
         root.setPadding(dp(20), dp(20), dp(20), dp(24));
         scroll.addView(root, new ScrollView.LayoutParams(-1, -2));
 
-        ImageView logo = new ImageView(this);
-        logo.setImageResource(getResources().getIdentifier("logo_jhopanstore", "drawable", getPackageName()));
-        logo.setAdjustViewBounds(true);
-        logo.setMaxHeight(dp(110));
-        root.addView(logo, new LinearLayout.LayoutParams(-1, dp(110)));
-
-        TextView title = text("Socks Client VPN", 28, true, TEXT_PRIMARY);
+        TextView title = text("Socks Client", 28, true, TEXT_PRIMARY);
         title.setGravity(Gravity.CENTER);
         root.addView(title, matchWrap());
-
-        TextView subtitle = text("Client VPN untuk konek ke SOCKS5 server hotspot", 14, false, TEXT_SECONDARY);
-        subtitle.setGravity(Gravity.CENTER);
-        root.addView(subtitle, matchWrap());
 
         hostInput = textInput("SOCKS Host/IP", prefs.getString("host", "192.168.1.10"));
         portInput = numberInput("SOCKS Port", prefs.getInt("port", 1080));
