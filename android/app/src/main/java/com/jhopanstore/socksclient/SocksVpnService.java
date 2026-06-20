@@ -16,13 +16,10 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import io.nekohasekai.libbox.CommandServer;
 import io.nekohasekai.libbox.CommandServerHandler;
-import io.nekohasekai.libbox.ConnectionOwner;
 import io.nekohasekai.libbox.InterfaceUpdateListener;
 import io.nekohasekai.libbox.Libbox;
-import io.nekohasekai.libbox.LocalDNSTransport;
 import io.nekohasekai.libbox.NetworkInterface;
 import io.nekohasekai.libbox.NetworkInterfaceIterator;
-import io.nekohasekai.libbox.OverrideOptions;
 import io.nekohasekai.libbox.PlatformInterface;
 import io.nekohasekai.libbox.RoutePrefix;
 import io.nekohasekai.libbox.RoutePrefixIterator;
@@ -32,6 +29,7 @@ import io.nekohasekai.libbox.StringIterator;
 import io.nekohasekai.libbox.SystemProxyStatus;
 import io.nekohasekai.libbox.TunOptions;
 import io.nekohasekai.libbox.WIFIState;
+import io.nekohasekai.libbox.BoxService;
 
 import java.net.Inet4Address;
 import java.net.InetAddress;
@@ -68,6 +66,7 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
     private volatile boolean connecting;
     private volatile boolean stopping;
     private CommandServer commandServer;
+    private BoxService boxService;
     private ParcelFileDescriptor vpnFd;
     private Thread heartbeatThread;
 
@@ -141,13 +140,11 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
             setupOptions.setBasePath(getFilesDir().getAbsolutePath());
             setupOptions.setWorkingPath(getNoBackupFilesDir().getAbsolutePath());
             setupOptions.setTempPath(getCacheDir().getAbsolutePath());
-            setupOptions.setDebug(BuildConfig.DEBUG);
-            setupOptions.setLogMaxLines(1000);
             Libbox.setup(setupOptions);
             Libbox.redirectStderr(getFileStreamPath("singbox-stderr.log").getAbsolutePath());
 
             // Start command server
-            commandServer = Libbox.newCommandServer(this, this);
+            commandServer = Libbox.newCommandServer(this, 0);
             commandServer.start();
 
             // Build config dan start service (bind_interface = null, pakai auto_detect_interface)
@@ -156,7 +153,9 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
             if (BuildConfig.DEBUG) {
                 logI("config: " + config);
             }
-            commandServer.startOrReloadService(config, new OverrideOptions());
+            boxService = Libbox.newService(config, this);
+            commandServer.setService(boxService);
+            boxService.start();
 
             synchronized (lock) {
                 running = true;
@@ -216,8 +215,17 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
         }
 
         try {
+            if (boxService != null) {
+                boxService.close();
+            }
+        } catch (Throwable t) {
+            logE("disconnectCoreOnly close boxService", t);
+        } finally {
+            boxService = null;
+        }
+
+        try {
             if (commandServer != null) {
-                commandServer.closeService();
                 commandServer.close();
             }
         } catch (Throwable t) {
@@ -651,7 +659,7 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
     // ══════════════════════════════════════════════
 
     @Override
-    public void autoDetectInterfaceControl(int fd) {
+    public void autoDetectInterfaceControl(int fd) throws Exception {
         protect(fd);
     }
 
@@ -660,16 +668,16 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
     }
 
     @Override
-    public void closeDefaultInterfaceMonitor(InterfaceUpdateListener listener) {
+    public void closeDefaultInterfaceMonitor(InterfaceUpdateListener listener) throws Exception {
     }
 
     @Override
-    public ConnectionOwner findConnectionOwner(int i, String s, int i1, String s1, int i2) {
-        return new ConnectionOwner();
+    public int findConnectionOwner(int i, String s, int i1, String s1, int i2) throws Exception {
+        return 0;
     }
 
     @Override
-    public NetworkInterfaceIterator getInterfaces() {
+    public NetworkInterfaceIterator getInterfaces() throws Exception {
         final List<NetworkInterface> result = new ArrayList<>();
         try {
             Enumeration<java.net.NetworkInterface> nifs = java.net.NetworkInterface.getNetworkInterfaces();
@@ -735,8 +743,13 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
     }
 
     @Override
-    public LocalDNSTransport localDNSTransport() {
-        return null;
+    public String packageNameByUid(int uid) throws Exception {
+        return "";
+    }
+
+    @Override
+    public int uidByPackageName(String packageName) throws Exception {
+        return 0;
     }
 
     @Override
@@ -866,13 +879,13 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
     }
 
     @Override
-    public void sendNotification(io.nekohasekai.libbox.Notification notification) {
+    public void sendNotification(io.nekohasekai.libbox.Notification notification) throws Exception {
         String body = notification == null ? "Running" : notification.getBody();
         notifyStatus(body == null || body.isEmpty() ? "Running" : body);
     }
 
     @Override
-    public void startDefaultInterfaceMonitor(InterfaceUpdateListener listener) {
+    public void startDefaultInterfaceMonitor(InterfaceUpdateListener listener) throws Exception {
         try {
             // Gunakan ConnectivityManager untuk menemukan network interface aktif
             android.net.ConnectivityManager cm =
@@ -881,14 +894,14 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
 
             if (activeNetwork == null) {
                 logI("startDefaultInterfaceMonitor: no active network, report empty");
-                listener.updateDefaultInterface("", 0, false, false);
+                listener.updateDefaultInterface("", 0);
                 return;
             }
 
             android.net.LinkProperties lp = cm.getLinkProperties(activeNetwork);
             if (lp == null) {
                 logI("startDefaultInterfaceMonitor: no LinkProperties, report empty");
-                listener.updateDefaultInterface("", 0, false, false);
+                listener.updateDefaultInterface("", 0);
                 return;
             }
 
@@ -897,8 +910,6 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
 
             // Cari index dari Java NetworkInterface
             int ifaceIndex = 0;
-            boolean isExpensive = false;
-            boolean isConstrained = false;
 
             if (ifaceName != null && !ifaceName.isEmpty()) {
                 try {
@@ -911,55 +922,22 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
                 } catch (Exception e) {
                     // Log.w(TAG, "getByName failed for " + ifaceName, e);
                 }
-
-                // Cek apakah network expensive (metered) atau constrained
-                android.net.NetworkCapabilities caps = cm.getNetworkCapabilities(activeNetwork);
-                if (caps != null) {
-                    isExpensive = !caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_METERED);
-                    isConstrained = !caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED);
-                }
             }
 
             // LAPOR ke sing-box — ini yang bikin auto_detect_interface bekerja!
             listener.updateDefaultInterface(
                     ifaceName != null ? ifaceName : "",
-                    ifaceIndex,
-                    isExpensive,
-                    isConstrained
+                    ifaceIndex
             );
             logI("startDefaultInterfaceMonitor: reported iface=" + ifaceName
-                    + " index=" + ifaceIndex + " expensive=" + isExpensive
-                    + " constrained=" + isConstrained);
+                    + " index=" + ifaceIndex);
 
         } catch (Exception e) {
             // Log.e(TAG, "startDefaultInterfaceMonitor failed", e);
             try {
-                listener.updateDefaultInterface("", 0, false, false);
+                listener.updateDefaultInterface("", 0);
             } catch (Exception ignored) {}
         }
-    }
-
-    @Override
-    public StringIterator systemCertificates() {
-        final List<String> empty = new ArrayList<>();
-        return new StringIterator() {
-            int index = 0;
-
-            @Override
-            public boolean hasNext() {
-                return index < empty.size();
-            }
-
-            @Override
-            public int len() {
-                return empty.size();
-            }
-
-            @Override
-            public String next() {
-                return empty.get(index++);
-            }
-        };
     }
 
     @Override
@@ -973,8 +951,23 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
     }
 
     @Override
+    public boolean usePlatformDefaultInterfaceMonitor() {
+        return true;
+    }
+
+    @Override
+    public boolean usePlatformInterfaceGetter() {
+        return true;
+    }
+
+    @Override
     public boolean useProcFS() {
         return false;
+    }
+
+    @Override
+    public void writeLog(String s) {
+        logI("libbox: " + s);
     }
 
     // ══════════════════════════════════════════════
@@ -987,22 +980,17 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
     }
 
     @Override
-    public void serviceReload() {
+    public void postServiceClose() {
+        logI("postServiceClose requested by sing-box");
+        new Thread(this::disconnectInternal, "sb-postServiceClose").start();
+    }
+
+    @Override
+    public void serviceReload() throws Exception {
         logI("serviceReload requested");
     }
 
     @Override
-    public void serviceStop() {
-        logI("serviceStop requested by sing-box");
-        new Thread(this::disconnectInternal, "sb-serviceStop").start();
-    }
-
-    @Override
-    public void setSystemProxyEnabled(boolean b) {
-    }
-
-    @Override
-    public void writeDebugMessage(String s) {
-        logI("libbox: " + s);
+    public void setSystemProxyEnabled(boolean b) throws Exception {
     }
 }
