@@ -9,7 +9,7 @@ import android.content.SharedPreferences;
 import android.net.VpnService;
 import android.os.Build;
 import android.os.ParcelFileDescriptor;
-import android.util.Log;
+// import android.util.Log; // all logs commented out
 
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicLong;
@@ -250,7 +250,7 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
                 } catch (InterruptedException e) {
                     break;
                 } catch (Exception e) {
-                    Log.w(TAG, "heartbeat error", e);
+                    // Log.w(TAG, "heartbeat error", e);
                 }
             }
         }, "sb-heartbeat");
@@ -355,7 +355,7 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
                 } catch (InterruptedException e) {
                     break;
                 } catch (Exception e) {
-                    Log.w(TAG, "traffic monitor error", e);
+                    // Log.w(TAG, "traffic monitor error", e);
                     try { Thread.sleep(TRAFFIC_POLL_MS); } catch (InterruptedException ie) { break; }
                 }
             }
@@ -458,7 +458,7 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
                     candidates.add(name);
                     logI("found interface: " + name + " (" + nif.getDisplayName() + ")");
                 } catch (Exception e) {
-                    Log.w(TAG, "skip interface check", e);
+                    // Log.w(TAG, "skip interface check", e);
                 }
             }
 
@@ -476,7 +476,7 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
             if (!candidates.isEmpty()) return candidates.get(0);
 
         } catch (Exception e) {
-            Log.e(TAG, "detectActiveInterface failed", e);
+            // Log.e(TAG, "detectActiveInterface failed", e);
         }
         return "wlan0"; // default fallback untuk WiFi hotspot
     }
@@ -498,11 +498,8 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
         // Local DNS via direct (bootstrap / resolve internal)
         sb.append("\"dns\":{");
         sb.append("\"servers\":[");
-        sb.append("{\"tag\":\"remote\",\"address\":\"tcp://8.8.8.8\",\"detour\":\"socks-out\"},");
-        sb.append("{\"tag\":\"local\",\"address\":\"1.1.1.1\",\"detour\":\"direct\"}");
-        sb.append("],");
-        sb.append("\"rules\":[");
-        sb.append("{\"outbound\":\"any\",\"server\":\"local\"}");
+        // Satu DNS saja: remote via SOCKS TCP. Jangan sediakan local/direct DNS agar tidak ada path bocor.
+        sb.append("{\"tag\":\"remote\",\"address\":\"tcp://8.8.8.8\",\"detour\":\"socks-out\"}");
         sb.append("],");
         sb.append("\"final\":\"remote\",");
         sb.append("\"strategy\":\"ipv4_only\"");
@@ -516,9 +513,11 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
         sb.append("\"address\":[\"172.19.0.1/30\"],");
         sb.append("\"mtu\":1400,");
         sb.append("\"auto_route\":true,");
-        sb.append("\"strict_route\":false,");
-        sb.append("\"sniff\":true,");
-        sb.append("\"sniff_override_destination\":true");
+        sb.append("\"strict_route\":true,"); // Force semua traffic lewat TUN
+        // Gaming UDP paling aman tanpa sniff/rewrite destination.
+        // Sniff override bisa mengubah destination dan bikin handshake game salah server.
+        sb.append("\"sniff\":false,");
+        sb.append("\"sniff_override_destination\":false");
         sb.append("}],");
 
         // ── Outbounds ──
@@ -560,9 +559,6 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
         sb.append("\"route\":{");
         sb.append("\"auto_detect_interface\":true,");
         sb.append("\"rules\":[");
-
-        // DNS protocol → direct (bootstrap)
-        sb.append("{\"protocol\":\"dns\",\"outbound\":\"direct\"},");
 
         // SOCKS server IP → direct (anti routing loop!)
         sb.append("{\"ip_cidr\":[\"").append(escapeJson(host)).append("/32\"],\"outbound\":\"direct\"},");
@@ -643,17 +639,17 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
     }
 
     private void logI(String m) {
-        if (BuildConfig.DEBUG) {
-            Log.i(TAG, m);
-            DebugLog.append(this, m);
-        }
+        // if (BuildConfig.DEBUG) {
+        //     Log.i(TAG, m);
+        //     DebugLog.append(this, m);
+        // }
     }
 
     private void logE(String m, Throwable t) {
-        Log.e(TAG, m, t);
-        if (BuildConfig.DEBUG) {
-            DebugLog.append(this, m + ": " + safeMessage(t));
-        }
+        // Log.e(TAG, m, t);
+        // if (BuildConfig.DEBUG) {
+        //     DebugLog.append(this, m + ": " + safeMessage(t));
+        // }
     }
 
     // ══════════════════════════════════════════════
@@ -724,11 +720,11 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
                             + " addrs=" + addrs + " mtu=" + jni.getMTU());
                     result.add(libIf);
                 } catch (Throwable t) {
-                    Log.w(TAG, "getInterfaces: skip " + jni.getName(), t);
+                    // Log.w(TAG, "getInterfaces: skip " + jni.getName(), t);
                 }
             }
         } catch (Exception e) {
-            Log.w(TAG, "getInterfaces enumeration failed", e);
+            // Log.w(TAG, "getInterfaces enumeration failed", e);
         }
 
         logI("getInterfaces: returning " + result.size() + " interfaces");
@@ -795,7 +791,7 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
                 try {
                     builder.addDnsServer(dns.getValue());
                 } catch (Exception e) {
-                    Log.w(TAG, "addDnsServer failed: " + dns.getValue(), e);
+                    // Log.w(TAG, "addDnsServer failed: " + dns.getValue(), e);
                 }
             }
             // Fallback DNS
@@ -919,7 +915,7 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
                                 + " mtu=" + jni.getMTU() + " up=" + jni.isUp());
                     }
                 } catch (Exception e) {
-                    Log.w(TAG, "getByName failed for " + ifaceName, e);
+                    // Log.w(TAG, "getByName failed for " + ifaceName, e);
                 }
 
                 // Cek apakah network expensive (metered) atau constrained
@@ -942,7 +938,7 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
                     + " constrained=" + isConstrained);
 
         } catch (Exception e) {
-            Log.e(TAG, "startDefaultInterfaceMonitor failed", e);
+            // Log.e(TAG, "startDefaultInterfaceMonitor failed", e);
             try {
                 listener.updateDefaultInterface("", 0, false, false);
             } catch (Exception ignored) {}

@@ -15,7 +15,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.InputType;
-import android.util.Log;
+// import android.util.Log; // all logs commented out
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
@@ -53,7 +53,7 @@ public class MainActivity extends Activity {
     private EditText passInput;
     private TextView statusText;
     private Button connectButton;
-    private Button disconnectButton;
+    // private Button disconnectButton; // merged into connectButton
 
     // ── Traffic counter UI ──
     private Switch trafficSwitch;
@@ -99,7 +99,7 @@ public class MainActivity extends Activity {
             } else {
                 connectButton.setEnabled(true);
                 statusText.setText("Status: VPN permission ditolak/dibatalkan");
-                Log.w(TAG, "VPN permission denied/cancelled, resultCode=" + resultCode);
+                // Log.w(TAG, "VPN permission denied/cancelled, resultCode=" + resultCode);
             }
         }
     }
@@ -139,12 +139,9 @@ public class MainActivity extends Activity {
         root.addView(fieldBox("Password", passInput), marginTop(matchWrap(), 10));
 
         connectButton = button("Connect Socks VPN");
-        connectButton.setOnClickListener(v -> prepareAndConnect());
+        connectButton.setBackgroundColor(GREEN);
+        connectButton.setOnClickListener(v -> onToggleConnection());
         root.addView(connectButton, marginTop(matchWrap(), 16));
-
-        disconnectButton = button("Disconnect");
-        disconnectButton.setOnClickListener(v -> stopVpn());
-        root.addView(disconnectButton, marginTop(matchWrap(), 8));
 
         Button guide = button("Cara Pakai Socks Client");
         guide.setBackgroundColor(Color.rgb(86, 96, 111));
@@ -207,18 +204,29 @@ public class MainActivity extends Activity {
         downloadText.setVisibility(enabled ? View.VISIBLE : View.GONE);
     }
 
+    private void onToggleConnection() {
+        SharedPreferences statusPrefs = getSharedPreferences(STATUS_PREFS, MODE_PRIVATE);
+        boolean connected = statusPrefs.getBoolean(KEY_CONNECTED, false);
+        boolean connecting = statusText.getText().toString().toLowerCase().contains("connecting");
+        if (connected || connecting || isVpnServiceAlive()) {
+            stopVpn();
+        } else {
+            prepareAndConnect();
+        }
+    }
+
     private void prepareAndConnect() {
         String host = hostInput.getText().toString().trim();
         int port = parsePort(portInput, 1080);
         if (host.isEmpty()) {
             statusText.setText("Status: Host/IP wajib diisi");
-            Log.w(TAG, "connect blocked: empty host");
+            // Log.w(TAG, "connect blocked: empty host");
             return;
         }
 
         connectButton.setEnabled(false);
         statusText.setText("Status: Preparing VPN...");
-        Log.i(TAG, "prepareAndConnect host=" + host + " port=" + port);
+        // Log.i(TAG, "prepareAndConnect host=" + host + " port=" + port);
 
         prefs.edit()
                 .putString("host", host)
@@ -234,14 +242,14 @@ public class MainActivity extends Activity {
                     if (vpnIntent != null) {
                         try {
                             startActivityForResult(vpnIntent, REQ_VPN);
-                            Log.i(TAG, "VpnService.prepare requires user consent");
+                            // Log.i(TAG, "VpnService.prepare requires user consent");
                         } catch (Exception e) {
                             statusText.setText("Status: VPN permission error - " + safeMessage(e));
                             connectButton.setEnabled(true);
-                            Log.e(TAG, "vpn permission error", e);
+                            // Log.e(TAG, "vpn permission error", e);
                         }
                     } else {
-                        Log.i(TAG, "VpnService.prepare already granted");
+                        // Log.i(TAG, "VpnService.prepare already granted");
                         startVpn();
                     }
                 });
@@ -249,7 +257,7 @@ public class MainActivity extends Activity {
                 handler.post(() -> {
                     statusText.setText("Status: Gagal prepare VPN - " + safeMessage(e));
                     connectButton.setEnabled(true);
-                    Log.e(TAG, "prepare failed", e);
+                    // Log.e(TAG, "prepare failed", e);
                 });
             }
         }).start();
@@ -265,19 +273,19 @@ public class MainActivity extends Activity {
                     .putExtra(SocksVpnService.EXTRA_PASS, passInput.getText().toString());
             if (Build.VERSION.SDK_INT >= 26) startForegroundService(intent);
             else startService(intent);
-            Log.i(TAG, "startVpn service started");
+            // Log.i(TAG, "startVpn service started");
         } catch (Throwable e) {
             saveStatus(false, "Gagal start VPN: " + safeMessage(e));
-            Log.e(TAG, "startVpn failed", e);
+            // Log.e(TAG, "startVpn failed", e);
         }
         refreshUi();
     }
 
     private void stopVpn() {
         try {
-            disconnectButton.setEnabled(false);
+            connectButton.setEnabled(false);
             statusText.setText("Status: Stopping VPN...");
-            Log.i(TAG, "stopVpn clicked");
+            // Log.i(TAG, "stopVpn clicked");
 
             Intent stop = new Intent(this, SocksVpnService.class).setAction(SocksVpnService.ACTION_DISCONNECT);
             startService(stop);
@@ -290,7 +298,7 @@ public class MainActivity extends Activity {
             }).start();
         } catch (Throwable e) {
             saveStatus(false, "Stop error: " + safeMessage(e));
-            Log.e(TAG, "stopVpn failed", e);
+            // Log.e(TAG, "stopVpn failed", e);
             refreshUi();
         }
     }
@@ -330,11 +338,18 @@ public class MainActivity extends Activity {
         }
 
         boolean connecting = status != null && status.toLowerCase().contains("connecting");
-        connectButton.setEnabled(!connected && !connecting);
-        connectButton.setBackgroundColor(connected ? GRAY : GREEN);
         boolean allowDisconnect = connected || connecting || isVpnServiceAlive();
-        disconnectButton.setEnabled(allowDisconnect);
-        disconnectButton.setBackgroundColor(allowDisconnect ? RED : GRAY);
+
+        // Merged toggle button: Connect ↔ Disconnect
+        if (allowDisconnect) {
+            connectButton.setText("Disconnect");
+            connectButton.setBackgroundColor(RED);
+            connectButton.setEnabled(true);
+        } else {
+            connectButton.setText("Connect Socks VPN");
+            connectButton.setBackgroundColor(GREEN);
+            connectButton.setEnabled(!connecting);
+        }
 
         boolean lockInputs = connected || connecting;
         hostInput.setEnabled(!lockInputs);
