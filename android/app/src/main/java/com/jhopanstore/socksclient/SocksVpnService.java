@@ -570,10 +570,10 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
         sb.append("\"rules\":[");
 
         // SOCKS server IP → direct (anti routing loop!)
-        sb.append("{\"ip_cidr\":[\"").append(escapeJson(host)).append("/32\"],\"outbound\":\"direct\"},");
+        sb.append("{\"ip_cidr\":[\"").append(escapeJson(host)).append("/32\"],\"outbound\":\"direct\"}");
 
-        // Block ALL IPv6 — server tidak support IPv6 routing
-        sb.append("{\"ip_version\":6,\"action\":\"reject\"}");
+        // Note: IPv6 blocking handled by DNS strategy "ipv4_only" (line 514)
+        // sing-box v1.10.x does not support "action" field in route rules
 
         sb.append("],");
         sb.append("\"final\":\"socks-out\"");
