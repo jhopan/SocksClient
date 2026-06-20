@@ -138,6 +138,11 @@ public class MainActivity extends Activity {
         guide.setOnClickListener(v -> showGuide());
         root.addView(guide, marginTop(matchWrap(), 8));
 
+        Button infoDev = button("Info Developer");
+        infoDev.setBackgroundColor(Color.rgb(70, 130, 180));
+        infoDev.setOnClickListener(v -> showDeveloperInfo());
+        root.addView(infoDev, marginTop(matchWrap(), 8));
+
         statusText = text("", 15, true, TEXT_PRIMARY);
         root.addView(statusText, marginTop(matchWrap(), 18));
 
@@ -340,6 +345,41 @@ public class MainActivity extends Activity {
                 .setMessage(guide)
                 .setPositiveButton("Tutup", null)
                 .show();
+    }
+
+    private void showDeveloperInfo() {
+        String versionName = "1.1.0";
+        try {
+            versionName = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+        } catch (Exception ignored) {}
+
+        String info = "Socks Client v" + versionName + "\n\n"
+                + "Developer: JhopanStore\n"
+                + "Platform: Android (SOCKS5 VPN Client)\n\n"
+                + "Hubungi developer atau dukung pengembangan aplikasi:";
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("Info Developer")
+                .setMessage(info)
+                .setPositiveButton("Telegram", (d, w) -> openUrl("https://t.me/jhopan_05"))
+                .setNeutralButton("Website", (d, w) -> openUrl("https://jhopanstore.my.id"))
+                .setNegativeButton("Trakteer", (d, w) -> openUrl("https://trakteer.id/jhopan"))
+                .create();
+
+        dialog.setOnShowListener(d -> {
+            AlertDialog ad = (AlertDialog) d;
+            ad.getButton(AlertDialog.BUTTON_POSITIVE).setTextColor(Color.rgb(0, 136, 204));
+            ad.getButton(AlertDialog.BUTTON_NEUTRAL).setTextColor(Color.rgb(76, 175, 80));
+            ad.getButton(AlertDialog.BUTTON_NEGATIVE).setTextColor(Color.rgb(244, 67, 54));
+        });
+
+        dialog.show();
+    }
+
+    private void openUrl(String url) {
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)));
+        } catch (Exception ignored) {}
     }
 
     private void requestNotificationPermission() {
