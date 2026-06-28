@@ -1,6 +1,5 @@
 # Binaries
-socks-client.exe
-socks-client-32.exe
+socks-client*.exe
 
 # Build artifacts
 installer_output/

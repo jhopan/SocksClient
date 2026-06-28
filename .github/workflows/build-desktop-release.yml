@@ -1,0 +1,90 @@
+name: Build & Release Desktop
+
+on:
+  push:
+    tags:
+      - 'v*-desktop'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: desktop
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
+      - name: Setup TDM-GCC (CGO)
+        run: |
+          choco install tdm-gcc -y
+          echo "C:\TDM-GCC-64\bin" >> $GITHUB_PATH
+
+      - name: Setup Inno Setup
+        run: |
+          choco install innosetup -y
+
+      - name: Compile Resources
+        run: |
+          windres -o rsrc_windows_amd64.syso app.rc
+
+      - name: Build exe
+        run: |
+          go build -ldflags="-s -w -H windowsgui" -o socks-client.exe .
+
+      - name: Build Installer
+        run: |
+          ISCC.exe setup.iss
+
+      - name: Get version
+        id: version
+        run: |
+          VERSION=$(grep 'appVersion' main.go | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+
+      - name: Upload installer as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SocksClientDesktop-Setup
+          path: desktop/installer_output/*.exe
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: desktop/installer_output/*.exe
+          name: "Socks Client Desktop v${{ env.VERSION }}"
+          body: |
+            ## Socks Client Desktop v${{ env.VERSION }}
+
+            Aplikasi desktop SOCKS5 VPN untuk Windows.
+
+            ### 📦 Installer
+            - `SocksClientDesktop_Setup_v${{ env.VERSION }}.exe`
+
+            ### 🧦 Fitur
+            - SOCKS5 VPN via sing-box v1.12.2
+            - UI native Win32 — ringan tanpa WebView2
+            - System tray — minimize to tray
+            - Single instance + Windows mutex
+            - Butuh Admin (TUN interface)
+
+            ### ⚠️ Cara Install
+            1. Download installer
+            2. Klik kanan → Run as Administrator
+            3. Ikuti wizard instalasi
+            4. Centang "Launch" → UAC → jalankan
+          draft: false
+          prerelease: false

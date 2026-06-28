@@ -52,16 +52,16 @@ Cek [Releases](../../releases) untuk APK terbaru.
 
 ## 💻 Desktop (Windows)
 
-Aplikasi desktop ringan menggunakan **Go + Walk (Win32 Native)** + **sing-box** sebagai core VPN.
+Aplikasi desktop ringan menggunakan **Go + Walk (Win32 Native)** + **sing-box v1.12.2** sebagai core VPN.
 
 ### Fitur
 - 🧦 SOCKS5 VPN via sing-box core (bundled)
 - 🖥️ UI native Win32 (Walk) — ringan, tanpa WebView2
 - 🗂️ System tray — close window masuk ke tray
 - 🔒 Single instance — tidak bisa buka 2x
-- 📊 Traffic counter
+- 🪟 Installer (Inno Setup) — auto-upgrade, auto-close app
 - ⚡ RAM ~12MB, file ~12MB
-- ✅ Kompatibel Windows 32-bit & 64-bit
+- ✅ Butuh Admin (TUN interface)
 
 ### Struktur
 ```
@@ -74,7 +74,7 @@ desktop/
 ├── rsrc_windows_amd64.syso
 ├── setup.iss            ← Inno Setup script
 ├── embed/
-│   ├── sing-box.exe     ← Core VPN (Git LFS)
+│   ├── sing-box.exe     ← Core VPN v1.12.2 (Git LFS)
 │   ├── app.ico          ← Logo socks (embedded)
 │   └── logo_store.png   ← Banner JhopanStore
 └── .gitignore
@@ -84,26 +84,36 @@ desktop/
 ```bash
 cd desktop
 
-# 64-bit
+# Prerequisites: Go 1.25+, TDM-GCC (for CGO), Inno Setup 6
+
+# Build app (64-bit GUI)
 go build -ldflags="-s -w -H windowsgui" -o socks-client.exe .
 
-# 32-bit (kompatibel semua Windows)
-GOOS=windows GOARCH=386 CGO_ENABLED=1 go build -ldflags="-s -w -H windowsgui" -o socks-client-32.exe .
-
-# Compress (opsional)
-upx --best --lzma socks-client-32.exe
+# Build installer
+# Buka setup.iss → Build → Compile (Ctrl+F9)
+# Output: installer_output/SocksClientDesktop_Setup_v1.1.0.exe
 ```
 
-### Build Installer
-1. Install [Inno Setup 6](https://jrsoftware.org/isdl.php)
-2. Buka `desktop/setup.iss`
-3. Build → Compile (Ctrl+F9)
-4. Output: `installer_output/SocksClientDesktop_Setup_v1.0.0.exe`
+### Build via GitHub Actions
+Push tag `v1.1.0-desktop` — otomatis build + release installer.
 
 ### Install
-Download installer dari [Releases](../../releases) atau build dari source.
+Download installer dari [Releases](../../releases).
 
 > ⚠️ **Butuh Admin** — App memerlukan hak admin untuk membuat TUN interface (sing-box).
+
+### Changelog
+
+#### v1.1.0 (2026-06-28)
+**Rilis perdana Desktop Windows**
+- 🧦 SOCKS5 VPN via sing-box v1.12.2 (bundled)
+- 🖥️ UI native Win32 (Walk) — ringan
+- 🗂️ System tray + minimize to tray
+- 🔒 Single instance + Windows mutex
+- 🪟 Installer Inno Setup — silent upgrade, auto UAC
+- 🛡️ Cleanup — kill process tree on exit
+- 📱 Info Developer dialog
+- ⚡ RAM ~12MB, total ~13MB
 
 ---
 

@@ -10,7 +10,6 @@ import (
 	"strconv"
 	"sync"
 	"syscall"
-	"time"
 	"unsafe"
 
 	"github.com/energye/systray"
@@ -19,12 +18,16 @@ import (
 	"github.com/lxn/win"
 )
 
+func openURL(url string) {
+	exec.Command("rundll32.exe", "url.dll,FileProtocolHandler", url).Start()
+}
+
 //go:embed embed/sing-box.exe embed/app.ico embed/logo_store.png
 var embeddedFiles embed.FS
 
 const (
 	appName    = "Socks Client Desktop"
-	appVersion = "1.0.0"
+	appVersion = "1.1.0"
 )
 
 var logoPath string
@@ -45,28 +48,23 @@ type App struct {
 	connectBtn  *walk.PushButton
 	disconnBtn  *walk.PushButton
 	statusLabel *walk.Label
-	dlLabel     *walk.Label
-	ulLabel     *walk.Label
-	trafficCB   *walk.CheckBox
 	trayCB      *walk.CheckBox
 
-	trafficEnabled bool
-	trayEnabled    bool
-	trayStarted    bool
-	windowVisible  bool
+	trayEnabled   bool
+	trayStarted   bool
+	windowVisible bool
 }
 
 type Settings struct {
-	Host    string `json:"host"`
-	Port    int    `json:"port"`
-	User    string `json:"user"`
-	Pass    string `json:"pass"`
-	Traffic bool   `json:"traffic"`
-	Tray    bool   `json:"tray"`
+	Host string `json:"host"`
+	Port int    `json:"port"`
+	User string `json:"user"`
+	Pass string `json:"pass"`
+	Tray bool   `json:"tray"`
 }
 
 func main() {
-	app := &App{trafficEnabled: true, trayEnabled: true, windowVisible: true}
+	app := &App{trayEnabled: true, windowVisible: true}
 	app.loadSettings()
 
 	app.appDir, _ = os.Executable()
@@ -79,6 +77,11 @@ func main() {
 		return
 	}
 	defer os.Remove(lockPath)
+
+	// Windows named mutex — Inno Setup AppMutex detects this
+	kernel32 := syscall.NewLazyDLL("kernel32.dll")
+	pMutex := kernel32.NewProc("CreateMutexW")
+	pMutex.Call(0, 0, uintptr(unsafe.Pointer(syscall.StringToUTF16Ptr("SocksClientDesktopMutex"))))
 
 	// Extract logo (PNG for banner)
 	logoData, _ := embeddedFiles.ReadFile("embed/logo_store.png")
@@ -93,6 +96,11 @@ func main() {
 	trayIconPath = tmpIco
 
 	app.runUI()
+
+	// Backup cleanup — if runUI returns (window closed without exitApp)
+	app.killProcess()
+	os.Remove(filepath.Join(os.TempDir(), "socks_client_desktop.lock"))
+	os.Exit(0)
 }
 
 // ─── Single Instance ──────────────────────────────────
@@ -143,14 +151,13 @@ func showExisting() {
 // ─── Settings ─────────────────────────────────────────
 
 func (a *App) loadSettings() {
-	a.settings = Settings{Port: 1080, Traffic: true, Tray: true}
+	a.settings = Settings{Port: 1080, Tray: true}
 	exePath, _ := os.Executable()
 	data, err := os.ReadFile(filepath.Join(filepath.Dir(exePath), "settings.json"))
 	if err != nil {
 		return
 	}
 	json.Unmarshal(data, &a.settings)
-	a.trafficEnabled = a.settings.Traffic
 	a.trayEnabled = a.settings.Tray
 }
 
@@ -165,8 +172,8 @@ func (a *App) saveSettings() {
 func (a *App) runUI() {
 	var hostEdit, portEdit, userEdit, passEdit *walk.LineEdit
 	var connectBtn, disconnBtn *walk.PushButton
-	var statusLabel, dlLabel, ulLabel *walk.Label
-	var trafficCB, trayCB *walk.CheckBox
+	var statusLabel *walk.Label
+	var trayCB *walk.CheckBox
 	var logoView *walk.ImageView
 
 	a.mw = new(walk.MainWindow)
@@ -174,8 +181,8 @@ func (a *App) runUI() {
 	MainWindow{
 		AssignTo: &a.mw,
 		Title:    appName + " v" + appVersion,
-		MinSize:  Size{Width: 380, Height: 620},
-		Size:     Size{Width: 380, Height: 620},
+		MinSize:  Size{Width: 380, Height: 520},
+		Size:     Size{Width: 380, Height: 520},
 		Layout:   VBox{MarginsZero: true, SpacingZero: true},
 		MenuItems: []MenuItem{
 			Menu{Text: "&File", Items: []MenuItem{
@@ -200,14 +207,6 @@ func (a *App) runUI() {
 				LineEdit{AssignTo: &passEdit, Text: a.settings.Pass, PasswordMode: true, Font: Font{Family: "Segoe UI", PointSize: 9}},
 			}},
 			Composite{Layout: VBox{Margins: Margins{Left: 15, Top: 5, Right: 15, Bottom: 5}}, Children: []Widget{
-				CheckBox{AssignTo: &trafficCB, Text: "Traffic Counter", Checked: a.settings.Traffic, Font: Font{Family: "Segoe UI", PointSize: 9},
-					OnCheckedChanged: func() { a.trafficEnabled = trafficCB.Checked() }},
-				Composite{Layout: HBox{MarginsZero: true, Spacing: 20}, Children: []Widget{
-					Label{AssignTo: &dlLabel, Text: "↓ 0 B", Font: Font{Family: "Consolas", PointSize: 10, Bold: true}},
-					Label{AssignTo: &ulLabel, Text: "↑ 0 B", Font: Font{Family: "Consolas", PointSize: 10, Bold: true}},
-				}},
-			}},
-			Composite{Layout: VBox{Margins: Margins{Left: 15, Top: 5, Right: 15, Bottom: 5}}, Children: []Widget{
 				CheckBox{AssignTo: &trayCB, Text: "Minimize to tray when closed", Checked: a.settings.Tray, Font: Font{Family: "Segoe UI", PointSize: 9},
 					OnCheckedChanged: func() { a.trayEnabled = trayCB.Checked() }},
 			}},
@@ -216,20 +215,20 @@ func (a *App) runUI() {
 					OnClicked: func() {
 						a.hostEdit, a.portEdit, a.userEdit, a.passEdit = hostEdit, portEdit, userEdit, passEdit
 						a.connectBtn, a.disconnBtn = connectBtn, disconnBtn
-						a.statusLabel, a.dlLabel, a.ulLabel = statusLabel, dlLabel, ulLabel
-						a.trafficCB, a.trayCB = trafficCB, trayCB
+						a.statusLabel = statusLabel
+						a.trayCB = trayCB
 						a.doConnect()
 					}},
 				PushButton{AssignTo: &disconnBtn, Text: "Disconnect", Enabled: false, Font: Font{Family: "Segoe UI", PointSize: 10},
 					OnClicked: func() {
 						a.disconnBtn, a.connectBtn = disconnBtn, connectBtn
-						a.statusLabel, a.dlLabel, a.ulLabel = statusLabel, dlLabel, ulLabel
+						a.statusLabel = statusLabel
 						a.doDisconnect()
 					}},
 			}},
 			Composite{Layout: HBox{Margins: Margins{Left: 15, Top: 5, Right: 15, Bottom: 5}, Spacing: 6}, Children: []Widget{
 				PushButton{Text: "Cara Pakai", Font: Font{Family: "Segoe UI", PointSize: 9}, OnClicked: func() { a.showHowTo() }},
-				PushButton{Text: "Social Media", Font: Font{Family: "Segoe UI", PointSize: 9}, OnClicked: func() { a.showSocial() }},
+				PushButton{Text: "Info Developer", Font: Font{Family: "Segoe UI", PointSize: 9}, OnClicked: func() { a.showDeveloperInfo() }},
 			}},
 			Composite{Layout: VBox{Margins: Margins{Left: 15, Top: 10, Right: 15, Bottom: 10}}, Children: []Widget{
 				Label{AssignTo: &statusLabel, Text: "Status: Disconnected", Font: Font{Family: "Segoe UI", PointSize: 9}, Alignment: AlignHCenterVCenter},
@@ -239,20 +238,23 @@ func (a *App) runUI() {
 
 	a.hostEdit, a.portEdit, a.userEdit, a.passEdit = hostEdit, portEdit, userEdit, passEdit
 	a.connectBtn, a.disconnBtn = connectBtn, disconnBtn
-	a.statusLabel, a.dlLabel, a.ulLabel = statusLabel, dlLabel, ulLabel
-	a.trafficCB, a.trayCB = trafficCB, trayCB
+	a.statusLabel = statusLabel
+	a.trayCB = trayCB
 
 	// Set window icon (taskbar) from ICO
 	if ico, err := walk.NewIconFromFile(trayIconPath); err == nil {
 		a.mw.SetIcon(ico)
 	}
 
-	// Window close → minimize to tray
+	// Window close — minimize to tray (if enabled) or exit cleanly
 	a.mw.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
 		if a.trayEnabled {
 			*canceled = true
 			win.ShowWindow(a.mw.Handle(), win.SW_HIDE)
 			a.windowVisible = false
+		} else {
+			a.killProcess()
+			systray.Quit()
 		}
 	})
 
@@ -266,7 +268,6 @@ func (a *App) runUI() {
 	// Start system tray in background goroutine
 	go a.startTray()
 
-	go a.pollTraffic()
 	a.mw.Run()
 }
 
@@ -311,13 +312,7 @@ func (a *App) showFromTray() {
 }
 
 func (a *App) exitApp() {
-	if a.connected {
-		if walk.MsgBox(a.mw, "Confirm", "VPN connected. Disconnect and exit?",
-			walk.MsgBoxYesNo|walk.MsgBoxIconQuestion) == 7 {
-			return
-		}
-		a.killProcess()
-	}
+	a.killProcess()
 	systray.Quit()
 	a.trayEnabled = false
 	a.mw.Close()
@@ -342,7 +337,7 @@ func (a *App) doConnect() {
 		return
 	}
 
-	a.settings = Settings{Host: host, Port: portNum, User: user, Pass: pass, Traffic: a.trafficCB.Checked(), Tray: a.trayCB.Checked()}
+	a.settings = Settings{Host: host, Port: portNum, User: user, Pass: pass, Tray: a.trayCB.Checked()}
 	a.saveSettings()
 	a.statusLabel.SetText("Status: Connecting...")
 	a.connectBtn.SetEnabled(false)
@@ -375,9 +370,9 @@ func (a *App) connectVPN(host, port, user, pass string) string {
 
 	portNum, _ := strconv.Atoi(port)
 	config := map[string]interface{}{
-		"log":    map[string]interface{}{"disabled": false, "level": "info"},
+		"log": map[string]interface{}{"level": "info"},
 		"inbounds": []map[string]interface{}{{
-			"type": "tun", "interface": "sb-tun",
+			"type": "tun", "interface_name": "sb-tun",
 			"address": []string{"172.19.0.1/30"}, "mtu": 9000,
 			"auto_route": true, "strict_route": false, "stack": "system", "sniff": true,
 		}},
@@ -392,45 +387,58 @@ func (a *App) connectVPN(host, port, user, pass string) string {
 	data, _ := json.MarshalIndent(config, "", "  ")
 	os.WriteFile(configPath, data, 0644)
 
+	logPath := filepath.Join(a.appDir, "sing-box.log")
+	logFile, _ := os.Create(logPath)
+
 	cmd := exec.Command(binPath, "run", "-c", configPath, "-D", a.appDir)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	cmd.Stdout = logFile
+	cmd.Stderr = logFile
 	if err := cmd.Start(); err != nil {
+		logFile.Close()
 		return "Start failed: " + err.Error()
 	}
 	a.mu.Lock()
 	a.process = cmd
 	a.mu.Unlock()
+	go func() {
+		cmd.Wait()
+		logFile.Close()
+		a.mw.Synchronize(func() {
+			if a.connected {
+				a.statusLabel.SetText("Status: Disconnected (process died)")
+				a.doDisconnect()
+			}
+		})
+	}()
 	return ""
 }
 
 func (a *App) doDisconnect() {
 	a.killProcess()
-	a.connected = false
 	a.statusLabel.SetText("Status: Disconnected")
 	a.connectBtn.SetEnabled(true)
 	a.disconnBtn.SetEnabled(false)
-	a.dlLabel.SetText("↓ 0 B")
-	a.ulLabel.SetText("↑ 0 B")
 }
 
 func (a *App) killProcess() {
 	a.mu.Lock()
-	defer a.mu.Unlock()
-	if a.process != nil && a.process.Process != nil {
-		a.process.Process.Kill()
-		a.process.Wait()
-		a.process = nil
+	if a.process == nil || a.process.Process == nil {
+		a.mu.Unlock()
+		return
 	}
+	pid := a.process.Process.Pid
+	a.process = nil
+	a.mu.Unlock()
+
+	// Kill entire process tree (taskkill cmd must be hidden too)
+	taskKill := exec.Command("taskkill.exe", "/F", "/T", "/PID", strconv.Itoa(pid))
+	taskKill.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	taskKill.Run()
+	a.connected = false
 }
 
-func (a *App) pollTraffic() {
-	for {
-		time.Sleep(2 * time.Second)
-		if !a.connected || !a.trafficEnabled {
-			continue
-		}
-	}
-}
+// ─── Dialogs ──────────────────────────────────────────
 
 func (a *App) showHowTo() {
 	walk.MsgBox(a.mw, "Cara Pakai",
@@ -440,8 +448,16 @@ func (a *App) showHowTo() {
 			"4. Klik Connect Socks VPN ✓", walk.MsgBoxIconInformation)
 }
 
-func (a *App) showSocial() {
-	walk.MsgBox(a.mw, "Social Media",
-		"📱 Telegram: @JhopanStore\n📸 Instagram: @jhopanstore\n🎬 YouTube: JhopanStore",
-		walk.MsgBoxIconInformation)
+func (a *App) showDeveloperInfo() {
+	// Custom dialog with 3 buttons using MsgBox + virtual key simulation
+	// Walk's MsgBox only supports 3 buttons via YesNoCancel
+	info := "Socks Client v" + appVersion + "\n\n" +
+		"Developer: JhopanStore\n" +
+		"Platform: Windows Desktop\n\n" +
+		"Hubungi developer atau dukung pengembangan aplikasi:\n\n" +
+		"Telegram: @jhopan_05\n" +
+		"Website: jhopanstore.my.id\n" +
+		"Trakteer: trakteer.id/jhopan"
+
+	walk.MsgBox(a.mw, "Info Developer", info, walk.MsgBoxIconInformation)
 }
