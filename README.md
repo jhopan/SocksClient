@@ -1,3 +1,5 @@
+<div align="center">
+
 # 🧦 Socks Client by JhopanStore
 
 **v1.1.0** | APK: **7.4MB** | Installer: **13MB**
@@ -6,8 +8,14 @@ Client VPN SOCKS5 untuk menghubungkan perangkat ke server SOCKS5 hotspot.
 
 Tersedia untuk **Android** dan **Windows Desktop**.
 
-[![Download APK](https://img.shields.io/badge/Download-APK-green?style=for-the-badge&logo=android)](../../releases/latest)
-[![Download Desktop](https://img.shields.io/badge/Download-Installer-blue?style=for-the-badge&logo=windows)](../../releases/latest)
+[![Download APK](https://img.shields.io/badge/Download-APK%20v1.1.0-green?style=for-the-badge&logo=android&logoColor=white)](../../releases/latest)
+[![Download Desktop](https://img.shields.io/badge/Download-Installer%20v1.1.0-blue?style=for-the-badge&logo=windows&logoColor=white)](../../releases/latest)
+
+[![GitHub Release](https://img.shields.io/github/v/release/jhopan/SocksClientByJhopanStore?style=flat-square)](../../releases)
+[![GitHub Downloads](https://img.shields.io/github/downloads/jhopan/SocksClientByJhopanStore/total?style=flat-square)](../../releases)
+[![GitHub Stars](https://img.shields.io/github/stars/jhopan/SocksClientByJhopanStore?style=flat-square)](../../stargazers)
+
+</div>
 
 ---
 
