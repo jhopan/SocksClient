@@ -1,6 +1,6 @@
 # 🧦 Socks Client by JhopanStore
 
-**v1.1.0** | APK Size: **7.4MB** (57% smaller) | Install Size: ~29MB
+**v1.1.0** | APK Size: **7.4MB** | Installer Size: **13MB**
 
 Client VPN SOCKS5 untuk menghubungkan perangkat ke server SOCKS5 hotspot.
 
@@ -60,7 +60,7 @@ Aplikasi desktop ringan menggunakan **Go + Walk (Win32 Native)** + **sing-box v1
 - 🗂️ System tray — close window masuk ke tray
 - 🔒 Single instance — tidak bisa buka 2x
 - 🪟 Installer (Inno Setup) — auto-upgrade, auto-close app
-- ⚡ RAM ~12MB, file ~12MB
+- ⚡ RAM ~12MB, total ~13MB
 - ✅ Butuh Admin (TUN interface)
 
 ### Struktur
@@ -84,7 +84,7 @@ desktop/
 ```bash
 cd desktop
 
-# Prerequisites: Go 1.25+, TDM-GCC (for CGO), Inno Setup 6
+# Prerequisites: Go 1.25+, GCC (CGO), Inno Setup 6
 
 # Build app (64-bit GUI)
 go build -ldflags="-s -w -H windowsgui" -o socks-client.exe .
@@ -95,7 +95,7 @@ go build -ldflags="-s -w -H windowsgui" -o socks-client.exe .
 ```
 
 ### Build via GitHub Actions
-Push tag `v1.1.0-desktop` — otomatis build + release installer.
+Push tag `v*-desktop` — otomatis build + release installer.
 
 ### Install
 Download installer dari [Releases](../../releases).
