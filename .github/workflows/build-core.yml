@@ -1,12 +1,12 @@
 name: Build Core
 
-# Builds the minimal sing-box core that the clients ship:
-# only what a SOCKS5 client needs (socks/http/mixed/tun/direct/dns) - all
-# optional features (quic, wireguard, utls, clash-api, tailscale, naive,
-# usbip, openvpn, acme, dhcp) are left out.
+# Builds the minimal sing-box core the clients ship.
+# Only what a SOCKS5 client needs: socks / http / mixed / tun / direct / block /
+# dns. Every optional feature is left out (quic, wireguard, utls, clash-api,
+# tailscale, naive, usbip, openvpn, openconnect, acme, dhcp, cloudflared).
+# Android keeps with_gvisor because its TUN needs that stack.
 #
-# Android gets libbox.aar (keeps with_gvisor, Android TUN needs that stack).
-# Everything is published to the "core" release.
+# Everything lands in the "core" release (never marked "latest").
 
 on:
   workflow_dispatch:
@@ -15,6 +15,10 @@ on:
         description: sing-box tag to build
         required: false
         default: v1.14.1
+      upx:
+        description: also publish UPX-compressed variants
+        type: boolean
+        default: false
   push:
     tags:
       - 'core*'
@@ -24,6 +28,7 @@ permissions:
 
 env:
   SB_VERSION: ${{ inputs.version || 'v1.14.1' }}
+  USE_UPX: ${{ inputs.upx || 'false' }}
 
 jobs:
   core:
@@ -68,20 +73,31 @@ jobs:
             -ldflags "-s -w -buildid= -X github.com/sagernet/sing-box/constant.Version=${SB_VERSION}-minimal" \
             -o "../dist/sing-box${ext}" ./cmd/sing-box
           cd ..
-          dist/sing-box${ext} version
+          go version -m "dist/sing-box${ext}" | head -3
+          ls -lh dist
+
+      - name: Install UPX
+        if: env.USE_UPX == 'true'
+        run: command -v upx || sudo apt-get install -y upx-ucl
 
       - name: Package
+        env:
+          NAME: ${{ matrix.name }}
         run: |
           set -euo pipefail
           cd dist
-          if [ "${{ matrix.goos }}" = "windows" ]; then
-            zip -q "sing-box-${SB_VERSION}-${{ matrix.name }}.zip" sing-box.exe
-            rm sing-box.exe
-          else
-            tar -czf "sing-box-${SB_VERSION}-${{ matrix.name }}.tar.gz" sing-box
-            rm sing-box
+          ext=""
+          if [ "${{ matrix.goos }}" = "windows" ]; then ext=".exe"; fi
+          if [ "${USE_UPX}" = "true" ]; then
+            upx --best --quiet "sing-box${ext}" || true
           fi
-          sha256sum * | tee "SHA256SUMS-${{ matrix.name }}.txt"
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            zip -q "sing-box-${SB_VERSION}-${NAME}.zip" "sing-box${ext}"
+          else
+            tar -czf "sing-box-${SB_VERSION}-${NAME}.tar.gz" "sing-box${ext}"
+          fi
+          rm -f "sing-box${ext}"
+          sha256sum * > "SHA256SUMS-${NAME}.txt"
           ls -lh
 
       - uses: actions/upload-artifact@v4
@@ -109,10 +125,11 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - uses: android-actions/setup-android@v3
-
-      - name: Install NDK
-        run: sdkmanager "ndk;27.2.12479018"
+      - name: Setup Android NDK
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r28
+          add-to-path: false
 
       - name: Install gomobile
         run: |
@@ -123,8 +140,6 @@ jobs:
       - name: Build libbox.aar
         run: |
           set -euo pipefail
-          export ANDROID_NDK_HOME="${ANDROID_SDK_ROOT:-$ANDROID_HOME}/ndk/27.2.12479018"
-          echo "NDK: $ANDROID_NDK_HOME"
           mkdir -p dist
           cd src
           gomobile bind -v -o ../dist/libbox.aar \
@@ -161,10 +176,10 @@ jobs:
           cat out/SHA256SUMS-*.txt > out/SHA256SUMS.txt
           notes="Minimal sing-box core for Socks Client.
 
-          Built from sing-box ${SB_VERSION} with no optional features - only the
-          inbounds/outbounds a SOCKS5 client needs (socks, http, mixed, tun,
-          direct, block, dns). No quic, wireguard, utls, clash-api, tailscale,
-          naive, usbip, openvpn, acme or dhcp.
+          Built from sing-box ${SB_VERSION} without any optional build tag, so it
+          contains only the inbounds/outbounds a SOCKS5 client uses: socks, http,
+          mixed, tun, direct, block, dns. No quic, wireguard, utls, clash-api,
+          tailscale, naive, usbip, openvpn, openconnect, acme, dhcp or cloudflared.
 
           | Asset | Target |
           |---|---|
@@ -172,17 +187,17 @@ jobs:
           | sing-box-*-windows-amd64.zip | Windows 64-bit |
           | sing-box-*-darwin-amd64.tar.gz | macOS Intel |
           | sing-box-*-darwin-arm64.tar.gz | macOS Apple Silicon |
-          | sing-box-*-linux-amd64.tar.gz | Linux x86_64 (static: Debian/Ubuntu/Alpine/OpenWrt x86) |
+          | sing-box-*-linux-amd64.tar.gz | Linux x86_64, fully static (Debian/Ubuntu/Alpine/OpenWrt x86) |
           | sing-box-*-linux-arm64.tar.gz | Linux arm64 |
           | sing-box-*-linux-armv7.tar.gz | Linux armv7 |
-          | sing-box-*-linux-mipsle-softfloat.tar.gz | OpenWrt/mips routers |
-          | libbox.aar | Android (arm64-v8a, armeabi-v7a, x86, x86_64) |
+          | sing-box-*-linux-mipsle-softfloat.tar.gz | OpenWrt / mipsel routers |
+          | libbox.aar | Android: arm64-v8a, armeabi-v7a, x86, x86_64 |
 
-          Windows/macOS binaries are static too - no runtime needed."
+          All binaries are CGO-free and static - no runtime dependencies."
           if gh release view core >/dev/null 2>&1; then
             gh release edit core --title "core" --notes "$notes" --latest=false
           else
             gh release create core --title "core" --notes "$notes" --latest=false
           fi
           gh release upload core out/* --clobber
-          gh release view core --json tagName,assets --jq '.assets[].name'
+          gh release view core --json assets --jq '.assets[].name'
