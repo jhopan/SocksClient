@@ -13,13 +13,16 @@ their release pipelines. Read this before editing anything.
 - Go 1.25+ (module `socks-client-desktop` in `desktop/go.mod`), mingw-w64 `windres` for resources.
 - JDK 17+, Android SDK 35 for the APK.
 - Inno Setup 6 (`ISCC.exe`) only for the Windows installer.
-- **Git LFS is required**: `desktop/embed/sing-box.exe` and `android/app/libs/libbox.aar` are LFS objects. Run `git lfs pull` after cloning.
+- **No binaries in git.** The sing-box core comes from the `core` release, built by `.github/workflows/build-core.yml`. Fetch it before building:
+  `desktop/scripts/fetch-core.sh` -> `desktop/embed/sing-box.exe`, `android/scripts/fetch-core.sh` -> `android/app/libs/libbox.aar`.
+  Tests use `SINGBOX_BIN` if set, else `desktop/embed/sing-box.exe` (skipped if absent).
 
 ## Build & test (exact commands)
 
 Desktop — run from `desktop/`:
 
 ```bash
+bash scripts/fetch-core.sh       # core into embed/ (skip only if SINGBOX_BIN is set)
 go vet ./...
 go test -count=1 ./...            # 3 tests: config validity, system proxy round-trip, proxy-mode traffic
 windres -o rsrc_windows_amd64.syso app.rc
@@ -30,6 +33,7 @@ ISCC.exe setup.iss                # installer -> installer_output/
 Android — run from `android/`:
 
 ```bash
+bash scripts/fetch-core.sh        # libbox.aar from the "core" release
 ./gradlew :app:assembleDebug      # or :app:assembleRelease (3 ABI splits + universal)
 ```
 
@@ -37,7 +41,9 @@ Android — run from `android/`:
 
 - `desktop/main.go` — UI, tray, connection lifecycle, sing-box config builders (`buildTunConfig`, `buildProxyConfig`).
 - `desktop/sysproxy_windows.go` — WinINet registry read/apply/restore, admin check, UAC re-launch.
-- `desktop/main_test.go` — runnable checks (see above).
+- `desktop/main_test.go` — runnable checks (see above); needs the core binary.
+- `desktop/scripts/fetch-core.sh`, `android/scripts/fetch-core.sh` — pull the core from the `core` release.
+- `.github/workflows/build-core.yml` — the only place the core is built (no optional tags; Android keeps `with_gvisor`).
 - `android/app/src/main/java/com/jhopanstore/socksclient/` — `MainActivity` (UI), `SocksVpnService` (VpnService + libbox platform interfaces + config builder), `SplashActivity`, `DebugLog`.
 
 ## Connection modes (desktop)
@@ -52,8 +58,13 @@ Android — run from `android/`:
 
 | Target | Tag | Workflow |
 |--------|-----|----------|
+| Core (sing-box) | `core` (or any `core*` tag) | `.github/workflows/build-core.yml` |
 | Android | `v1.2.0` (bumps `versionCode`/`versionName` in `android/app/build.gradle.kts`) | `.github/workflows/build-apk-release.yml` |
 | Desktop | `desktop-v1.2.0` (bumps `appVersion` in `desktop/main.go` + `MyAppVersion` in `desktop/setup.iss`) | `.github/workflows/build-desktop-release.yml` |
+
+The core workflow also updates the existing `core` release in place (`--latest=false`
+so the newest app release stays "Latest"). Bump the sing-box version by running it
+with a new `version` input.
 
 Never tag a desktop release as `v*` — `v*` belongs to Android and would trigger the APK workflow.
 Version numbers live in exactly three places: `desktop/main.go`, `desktop/setup.iss`, `android/app/build.gradle.kts`.
@@ -77,7 +88,8 @@ Everything inside this repo is in scope. Sibling projects on the same machine (`
 ## Pitfalls
 
 - Workflows must sit in the **repo root** `.github/workflows/`. A workflow under `android/.github/` is never read by GitHub and silently does nothing.
-- sing-box v1.12 (desktop) wants `"address"` in the tun inbound; older versions used `inet4_address`. The Android core is v1.10.x and rejects route-rule `"action"` fields — do not copy desktop config into the Android builder.
+- The desktop config targets sing-box >= 1.13: `sniff` moved out of the tun inbound into a route action (`{"action":"sniff"}`). The old `inet4_address` field is gone too. Do not copy the desktop config into the Android builder — libbox there is 1.10.x and rejects route-rule `"action"`.
+- Never commit `desktop/embed/sing-box.exe` or `android/app/libs/libbox.aar`; both are gitignored and rebuilt by CI.
 - TUN needs Administrator; proxy mode must stay usable unelevated — do not re-add `requireAdministrator` to `desktop/app.manifest`.
 - `walk` handles must be touched on the UI thread: cross-goroutine updates go through `a.mw.Synchronize`.
 - Killing sing-box must use `taskkill /F /T` on the PID or the TUN interface stays behind.

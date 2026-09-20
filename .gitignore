@@ -17,6 +17,10 @@ app/build/
 local.properties
 captures/
 
+# === Build inputs (fetched from the "core" release, never committed) ===
+desktop/embed/sing-box.exe
+android/app/libs/libbox.aar
+
 # === Desktop ===
 # Binaries
 socks-client*.exe

@@ -33,6 +33,9 @@ jobs:
       - name: Grant execute permission
         run: chmod +x gradlew
 
+      - name: Fetch core (libbox.aar)
+        run: bash scripts/fetch-core.sh
+
       - name: Build Release APKs
         run: ./gradlew :app:assembleRelease
 

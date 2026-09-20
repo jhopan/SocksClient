@@ -5,7 +5,7 @@ from GitHub Actions, so a PR only needs source + tests — no binaries.
 
 ## Before you start
 
-1. `git lfs install && git lfs pull` — `desktop/embed/sing-box.exe` (36 MB) and `android/app/libs/libbox.aar` are LFS objects. Without them nothing builds.
+1. Fetch the core: `desktop/scripts/fetch-core.sh` (and `android/scripts/fetch-core.sh` for the APK). Binaries are never committed — CI builds them in **Build Core** and publishes the `core` release.
 2. Read `AGENTS.md` for layout, exact commands and pitfalls.
 
 ## Building
@@ -13,6 +13,7 @@ from GitHub Actions, so a PR only needs source + tests — no binaries.
 Desktop (from `desktop/`):
 
 ```bash
+bash scripts/fetch-core.sh
 go vet ./...
 go test -count=1 ./...
 go build -ldflags="-s -w -H windowsgui" -o socks-client.exe .
@@ -48,5 +49,6 @@ tail of `%LOCALAPPDATA%\SocksClientDesktop\sing-box.log`.
 ## Not wanted
 
 - New runtime dependencies in `desktop/` (stdlib + `golang.org/x/sys` is the budget)
+- Committing binaries (`sing-box.exe`, `libbox.aar`, APKs, installers)
 - Gradle/Android dependencies beyond `libbox.aar`
 - Reformatting-only PRs

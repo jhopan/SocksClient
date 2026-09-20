@@ -129,11 +129,16 @@ func TestProxyModeCarriesTraffic(t *testing.T) {
 	}
 }
 
+// testSingBox returns the core to test against: SINGBOX_BIN, or the core
+// downloaded by desktop/scripts/fetch-core.sh. CI always fetches it.
 func testSingBox(t *testing.T) string {
 	t.Helper()
-	bin, err := extractSingBox(t.TempDir())
-	if err != nil {
-		t.Fatalf("extract sing-box: %v", err)
+	if bin := os.Getenv("SINGBOX_BIN"); bin != "" {
+		return bin
+	}
+	bin := filepath.Join("embed", "sing-box.exe")
+	if st, err := os.Stat(bin); err != nil || st.Size() < 1024 {
+		t.Skipf("core not found at %s - run desktop/scripts/fetch-core.sh or set SINGBOX_BIN", bin)
 	}
 	return bin
 }
