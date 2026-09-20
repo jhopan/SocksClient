@@ -23,12 +23,38 @@ Available for **Android** and **Windows Desktop**.
 
 | Mode | How it works | Needs admin | Use when |
 |------|--------------|-------------|----------|
-| **TUN** | sing-box creates a virtual interface and routes every IP packet into it (wintun is embedded in the core, nothing to install) | Yes | Normal case — all apps including UDP/games go through the tunnel |
+| **TUN** | sing-box creates a virtual interface and routes every IP packet into it (wintun is embedded in the core, nothing to install). TUN stack `system` or `gvisor`, MTU adjustable | Yes | Normal case — all apps including UDP/games go through the tunnel |
 | **Proxy** | sing-box opens a local SOCKS5 + HTTP inbound and three proxy layers are pointed at it: WinINet (browsers, Electron, Edge), user environment variables (`HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY` — Go, Python, Node, curl, git) and WinHTTP when elevated (Windows Update, installers) | No (WinHTTP layer only when elevated) | TUN does not start (AV blocks the wintun driver, no admin, route conflict) |
 
 Apps that keep their own network stack (Steam, most games, torrent clients) ignore all
 three layers and stay direct in proxy mode — point them at `127.0.0.1:2080` manually or
 use TUN when UDP is needed.
+
+### TUN correctness
+
+Three things that used to break TUN on real laptops and are now covered by tests:
+
+1. **Explicit `direct` outbound.** The route rule that keeps the tunnel's own packets out of
+   the tunnel (anti-loop) and the bootstrap DNS server both reference the tag `direct`.
+   sing-box 1.14 does not create it implicitly: without it the service dies at startup
+   with `outbound detour not found: direct`, which looks exactly like "TUN connected but
+   dead".
+2. **DNS stays in the tunnel.** Every DNS query is hijacked (`hijack-dns` route action) and
+   answered by a resolver reached over the SOCKS connection, so a laptop whose DHCP hands
+   out a LAN resolver cannot leak queries outside the tunnel.
+3. **Bootstrap only.** The system resolver is used *only* to resolve the SOCKS server's own
+   hostname (`default_domain_resolver`). A `direct`-detoured DNS server is rejected by
+   sing-box inside `auto_route` (it would loop back into the tunnel).
+
+Desktop validation on a real machine:
+
+```bash
+# git-bash as Administrator
+desktop/scripts/tun-selftest.sh            # or: tun-selftest.sh "Ethernet 2"
+```
+
+It starts a local SOCKS5 server, runs the real TUN config against it, proves TCP + DNS
+travel the tunnel and that the adapter/routes/internet are restored afterwards.
 
 The **Diagnosa** button reports: active mode, admin state, core path/version, whether the
 local port is free, the current WinINet/env/WinHTTP values, the tail of `sing-box.log`

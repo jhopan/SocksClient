@@ -17,7 +17,14 @@ func main() {
 	flag.Parse()
 
 	cfgs := map[string]map[string]interface{}{
-		"tun.json":   boxcfg.Tun("10.12.132.225", 1080, "user", "pass"),
+		"tun.json": boxcfg.Tun("10.12.132.225", 1080, "user", "pass",
+			boxcfg.TunOptions{Stack: boxcfg.StackSystem}),
+		"tun-gvisor.json": boxcfg.Tun("10.12.132.225", 1080, "user", "pass",
+			boxcfg.TunOptions{Stack: boxcfg.StackGVisor}),
+		"tun-mtu1400.json": boxcfg.Tun("10.12.132.225", 1080, "user", "pass",
+			boxcfg.TunOptions{Stack: boxcfg.StackSystem, MTU: 1400}),
+		"tun-hostname.json": boxcfg.Tun("server.example.com", 1080, "user", "pass",
+			boxcfg.TunOptions{Stack: boxcfg.StackSystem}),
 		"proxy.json": boxcfg.Proxy("10.12.132.225", 1080, "user", "pass", 2080),
 	}
 	if err := os.MkdirAll(*out, 0o755); err != nil {

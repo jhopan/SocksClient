@@ -79,7 +79,9 @@ jobs:
           ext=""
           if [ "$GOOS" = "windows" ]; then ext=".exe"; fi
           cd src
-          CGO_ENABLED=0 go build -trimpath \
+          # with_gvisor backs the client's "gvisor" TUN stack, the fallback for
+          # laptops where the system stack misbehaves (+4 MB, worth the stability)
+          CGO_ENABLED=0 go build -trimpath -tags with_gvisor \
             -ldflags "-s -w -buildid= -X github.com/sagernet/sing-box/constant.Version=${SB_VERSION}-minimal" \
             -o "../dist/sing-box${ext}" ./cmd/sing-box
           cd ..
@@ -200,6 +202,9 @@ jobs:
           cd ..
           ./sing-box version
 
+      - name: Config unit tests (tag references, anti-loop rule, DNS hijack)
+        run: cd desktop && go test -count=1 ./internal/boxcfg/
+
       - name: Dump the exact configs the client runs
         run: cd desktop && go run ./cmd/dumpconfig -out ../cfg
 
@@ -242,8 +247,10 @@ jobs:
           Protocol registry trimmed (core/slim-registry.py): vless, vmess, trojan,
           shadowsocks, shadowtls, snell, ssh, tor, anytls, naive, bridge, groups,
           clash-api, mdns/fakeip/hosts/resolved DNS transports are not compiled in.
-          A verify job builds this core and runs 'sing-box check' on the exact
-          configs the client runs before anything is published.
+          Built with `with_gvisor` so the client can offer both TUN stacks
+          (system and gvisor). A verify job runs the config unit tests plus
+          'sing-box check' on the exact configs the client runs before anything
+          is published.
 
           | Asset | Target |
           |---|---|

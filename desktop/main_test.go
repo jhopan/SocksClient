@@ -23,8 +23,10 @@ func TestConfigsAcceptedBySingBox(t *testing.T) {
 	bin := testSingBox(t)
 
 	cases := map[string]map[string]interface{}{
-		"tun":   boxcfg.Tun("10.12.132.225", 1080, "user", "pass"),
-		"proxy": boxcfg.Proxy("10.12.132.225", 1080, "user", "pass", defaultLocalPort),
+		"tun":    boxcfg.Tun("10.12.132.225", 1080, "user", "pass", boxcfg.TunOptions{}),
+		"gvisor": boxcfg.Tun("10.12.132.225", 1080, "user", "pass", boxcfg.TunOptions{Stack: boxcfg.StackGVisor}),
+		"host":   boxcfg.Tun("server.example.com", 1080, "user", "pass", boxcfg.TunOptions{}),
+		"proxy":  boxcfg.Proxy("10.12.132.225", 1080, "user", "pass", defaultLocalPort),
 	}
 
 	for name, cfg := range cases {
