@@ -81,3 +81,5 @@ Everything inside this repo is in scope. Sibling projects on the same machine (`
 - TUN needs Administrator; proxy mode must stay usable unelevated — do not re-add `requireAdministrator` to `desktop/app.manifest`.
 - `walk` handles must be touched on the UI thread: cross-goroutine updates go through `a.mw.Synchronize`.
 - Killing sing-box must use `taskkill /F /T` on the PID or the TUN interface stays behind.
+- On Windows git-bash, `./gradlew` dies with `Could not find or load main class org.gradle.wrapper.GradleWrapperMain` (MSYS path handed to native `java`). Use `cmd //c gradlew.bat ...` or invoke the wrapper directly:
+  `java -classpath C:/<repo>/android/gradle/wrapper/gradle-wrapper.jar org.gradle.wrapper.GradleWrapperMain :app:assembleRelease`.

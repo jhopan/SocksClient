@@ -96,10 +96,6 @@ func main() {
 	app.runDir = runtimeDir()
 	app.loadSettings()
 
-	// A leftover backup means the previous run died while the system proxy was
-	// pointed at us. Put the user's settings back before doing anything else.
-	app.restoreSystemProxy()
-
 	// Single instance check via lock file
 	lockPath := filepath.Join(app.runDir, lockFileName)
 	if !checkAndLock(lockPath) {
@@ -107,6 +103,11 @@ func main() {
 		return
 	}
 	defer os.Remove(lockPath)
+
+	// A leftover backup means the previous run died while the system proxy was
+	// pointed at us. Only touch it once we own the lock - a live instance still
+	// holds the proxy on purpose.
+	app.restoreSystemProxy()
 
 	// Windows named mutex - Inno Setup AppMutex detects this
 	kernel32 := syscall.NewLazyDLL("kernel32.dll")
