@@ -162,6 +162,9 @@ jobs:
     needs: [core, android]
     runs-on: ubuntu-latest
     steps:
+      # gh release needs a git repo (and we avoid any doubt about the remote)
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           path: out
@@ -191,13 +194,14 @@ jobs:
           | sing-box-*-linux-arm64.tar.gz | Linux arm64 |
           | sing-box-*-linux-armv7.tar.gz | Linux armv7 |
           | sing-box-*-linux-mipsle-softfloat.tar.gz | OpenWrt / mipsel routers |
-          | libbox.aar | Android: arm64-v8a, armeabi-v7a, x86, x86_64 |
+          | libbox.aar | Android: arm64-v8a, armeabi-v7a |
 
           All binaries are CGO-free and static - no runtime dependencies."
-          if gh release view core >/dev/null 2>&1; then
-            gh release edit core --title "core" --notes "$notes" --latest=false
+          R="-R $GITHUB_REPOSITORY"
+          if gh release view core $R >/dev/null 2>&1; then
+            gh release edit core $R --title "core" --notes "$notes" --latest=false
           else
-            gh release create core --title "core" --notes "$notes" --latest=false
+            gh release create core $R --title "core" --notes "$notes" --latest=false
           fi
-          gh release upload core out/* --clobber
-          gh release view core --json assets --jq '.assets[].name'
+          gh release upload core $R out/* --clobber
+          gh release view core $R --json assets --jq '.assets[].name'
