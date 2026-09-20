@@ -19,6 +19,8 @@ import (
 	"github.com/lxn/walk"
 	. "github.com/lxn/walk/declarative"
 	"github.com/lxn/win"
+
+	"socks-client-desktop/internal/boxcfg"
 )
 
 func openURL(url string) {
@@ -526,50 +528,6 @@ func (a *App) connectedStatus(mode, host string, port, localPort int) string {
 	return fmt.Sprintf("Status: Connected (TUN) %s:%d", host, port)
 }
 
-func socksOutbound(host string, port int, user, pass string) map[string]interface{} {
-	ob := map[string]interface{}{
-		"type": "socks", "tag": "socks-out",
-		"server": host, "server_port": port, "version": "5",
-	}
-	if user != "" {
-		ob["username"] = user
-		ob["password"] = pass
-	}
-	return ob
-}
-
-func buildTunConfig(host string, port int, user, pass string) map[string]interface{} {
-	return map[string]interface{}{
-		"log": map[string]interface{}{"level": "info"},
-		"inbounds": []map[string]interface{}{{
-			"type": "tun", "interface_name": "sb-tun",
-			"address": []string{"172.19.0.1/30"}, "mtu": 9000,
-			"auto_route": true, "strict_route": false, "stack": "system",
-		}},
-		"outbounds": []map[string]interface{}{socksOutbound(host, port, user, pass)},
-		"route": map[string]interface{}{
-			"auto_detect_interface": true,
-			// sniff used to live in the tun inbound; sing-box 1.13 moved it to
-			// a route action. The core we ship is built >= 1.13.
-			"rules": []map[string]interface{}{{"action": "sniff"}},
-			"final": "socks-out",
-		},
-	}
-}
-
-// buildProxyConfig is the non-TUN mode: one local mixed inbound (SOCKS5 + HTTP),
-// no interface, no routes, no admin rights.
-func buildProxyConfig(host string, port int, user, pass string, localPort int) map[string]interface{} {
-	return map[string]interface{}{
-		"log": map[string]interface{}{"level": "info"},
-		"inbounds": []map[string]interface{}{{
-			"type": "mixed", "tag": "mixed-in",
-			"listen": "127.0.0.1", "listen_port": localPort,
-		}},
-		"outbounds": []map[string]interface{}{socksOutbound(host, port, user, pass)},
-	}
-}
-
 // findSingBox locates the core executable: next to the app (installer), in the
 // repo checkout (desktop/embed, put there by scripts/fetch-core.sh) or in the
 // runtime dir. SINGBOX_BIN overrides everything (CI and dev).
@@ -598,10 +556,10 @@ func (a *App) startCore(mode, host string, port int, user, pass string, localPor
 	var config map[string]interface{}
 	proxyAddr := ""
 	if mode == modeProxy {
-		config = buildProxyConfig(host, port, user, pass, localPort)
+		config = boxcfg.Proxy(host, port, user, pass, localPort)
 		proxyAddr = "127.0.0.1:" + strconv.Itoa(localPort)
 	} else {
-		config = buildTunConfig(host, port, user, pass)
+		config = boxcfg.Tun(host, port, user, pass)
 	}
 
 	configPath := filepath.Join(a.runDir, "config.json")

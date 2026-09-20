@@ -43,7 +43,9 @@ bash scripts/fetch-core.sh        # libbox.aar from the "core" release
 - `desktop/sysproxy_windows.go` — WinINet registry read/apply/restore, admin check, UAC re-launch.
 - `desktop/main_test.go` — runnable checks (see above); needs the core binary.
 - `desktop/scripts/fetch-core.sh`, `android/scripts/fetch-core.sh` — pull the core from the `core` release.
-- `.github/workflows/build-core.yml` — the only place the core is built (no optional tags; Android keeps `with_gvisor`).
+- `.github/workflows/build-core.yml` — the only place the core is built (no optional tags; Android keeps `with_gvisor`). Inputs: `version`, `slim` (default on), `upx`.
+- `core/slim-registry.py` — trims sing-box `include/registry.go` to socks/http/mixed/tun/direct/block/local-DNS. Runs in every core job; it exits non-zero if upstream renames a required registration, which skips the release instead of shipping a broken core. The `verify` job then builds the trimmed core and runs `sing-box check` on the configs emitted by `desktop/cmd/dumpconfig`.
+- `desktop/internal/boxcfg` — single source of truth for the sing-box config (pure stdlib, no windows imports) so both the app and the core workflow use the same JSON. `desktop/cmd/dumpconfig` writes it out for CI.
 - `android/app/src/main/java/com/jhopanstore/socksclient/` — `MainActivity` (UI), `SocksVpnService` (VpnService + libbox platform interfaces + config builder), `SplashActivity`, `DebugLog`.
 
 ## Connection modes (desktop)

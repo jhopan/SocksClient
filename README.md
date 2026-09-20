@@ -45,6 +45,12 @@ The repo ships **no binaries**. The sing-box core is built by GitHub Actions
 features a SOCKS5 client uses (socks, http, mixed, tun, direct, block, dns). No
 quic, wireguard, utls, clash-api, tailscale, naive, usbip, openvpn, acme or dhcp.
 
+Sizes (windows/amd64, `-s -w -trimpath`): **81.9 MB** upstream full build →
+**36.0 MB** no optional tags → **27.6 MB** with the protocol registry trimmed
+(`core/slim-registry.py`) → **8.6 MB** when the UPX variant is published.
+The trim drops vless/vmess/trojan/shadowsocks/shadowtls/snell/ssh/tor/anytls/naive/
+bridge/selector-urltest/clash-api/mdns-fakeip-hosts-resolved — nothing the client uses.
+
 Everything is published to the [**core** release](../../releases/tag/core):
 
 | Asset | Target |
@@ -60,8 +66,10 @@ Everything is published to the [**core** release](../../releases/tag/core):
 | `libbox.aar` | Android: arm64-v8a, armeabi-v7a, x86, x86_64 |
 
 All binaries are CGO-free and static — drop them on any machine, no runtime needed.
-Rebuild with **Actions → Build Core → Run workflow** (input: sing-box tag, optional
-UPX compression).
+Rebuild with **Actions → Build Core → Run workflow**: inputs are the sing-box tag,
+`slim` (registry trim, default on) and `upx` (also publish `-upx` variants, default off).
+A `verify` job builds the trimmed core and runs `sing-box check` on the exact configs
+the client runs (`desktop/cmd/dumpconfig`) before anything is published.
 
 Build artifacts (installer, raw exe, APK set, core archives) are attached to every
 workflow run under **Actions** -> run -> *Artifacts*; released builds also land in

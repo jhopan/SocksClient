@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"socks-client-desktop/internal/boxcfg"
 	"time"
 )
 
@@ -21,8 +23,8 @@ func TestConfigsAcceptedBySingBox(t *testing.T) {
 	bin := testSingBox(t)
 
 	cases := map[string]map[string]interface{}{
-		"tun":   buildTunConfig("10.12.132.225", 1080, "user", "pass"),
-		"proxy": buildProxyConfig("10.12.132.225", 1080, "user", "pass", defaultLocalPort),
+		"tun":   boxcfg.Tun("10.12.132.225", 1080, "user", "pass"),
+		"proxy": boxcfg.Proxy("10.12.132.225", 1080, "user", "pass", defaultLocalPort),
 	}
 
 	for name, cfg := range cases {
@@ -108,7 +110,7 @@ func TestProxyModeCarriesTraffic(t *testing.T) {
 	waitPort(t, socksPort)
 
 	proxyCmd := startSingBox(t, bin, dir, "proxy-mode.json",
-		buildProxyConfig("127.0.0.1", socksPort, "", "", mixedPort))
+		boxcfg.Proxy("127.0.0.1", socksPort, "", "", mixedPort))
 	defer killCmd(proxyCmd)
 	waitPort(t, mixedPort)
 

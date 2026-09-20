@@ -27,6 +27,7 @@ socks-client*.exe
 
 # Build artifacts
 installer_output/
+/cfg/
 
 # Runtime
 settings.json

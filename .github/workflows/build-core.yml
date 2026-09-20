@@ -19,6 +19,10 @@ on:
         description: also publish UPX-compressed variants
         type: boolean
         default: false
+      slim:
+        description: trim the protocol registry (socks/http/mixed/tun/direct/block/dns only)
+        type: boolean
+        default: true
   push:
     tags:
       - 'core*'
@@ -28,7 +32,9 @@ permissions:
 
 env:
   SB_VERSION: ${{ inputs.version || 'v1.14.1' }}
-  USE_UPX: ${{ inputs.upx || 'false' }}
+  USE_UPX: ${{ inputs.upx }}
+  # tags pushes and workflow_dispatch both default to slim
+  SLIM: ${{ github.event_name != 'workflow_dispatch' || inputs.slim }}
 
 jobs:
   core:
@@ -56,6 +62,10 @@ jobs:
         with:
           go-version-file: src/go.mod
           cache-dependency-path: src/go.sum
+
+      - name: Trim protocol registry
+        if: env.SLIM == 'true'
+        run: python3 core/slim-registry.py src/include/registry.go
 
       - name: Build
         env:
@@ -88,13 +98,15 @@ jobs:
           cd dist
           ext=""
           if [ "${{ matrix.goos }}" = "windows" ]; then ext=".exe"; fi
+          suffix=""
           if [ "${USE_UPX}" = "true" ]; then
             upx --best --quiet "sing-box${ext}" || true
+            suffix="-upx"
           fi
           if [ "${{ matrix.goos }}" = "windows" ]; then
-            zip -q "sing-box-${SB_VERSION}-${NAME}.zip" "sing-box${ext}"
+            zip -q "sing-box-${SB_VERSION}-${NAME}${suffix}.zip" "sing-box${ext}"
           else
-            tar -czf "sing-box-${SB_VERSION}-${NAME}.tar.gz" "sing-box${ext}"
+            tar -czf "sing-box-${SB_VERSION}-${NAME}${suffix}.tar.gz" "sing-box${ext}"
           fi
           rm -f "sing-box${ext}"
           sha256sum * > "SHA256SUMS-${NAME}.txt"
@@ -131,6 +143,10 @@ jobs:
           ndk-version: r28
           add-to-path: false
 
+      - name: Trim protocol registry
+        if: env.SLIM == 'true'
+        run: python3 core/slim-registry.py src/include/registry.go
+
       - name: Install gomobile
         run: |
           go install -v github.com/sagernet/gomobile/cmd/gomobile@v0.1.13
@@ -157,9 +173,48 @@ jobs:
           path: dist/libbox.aar
           if-no-files-found: error
 
+  verify:
+    name: verify the slim core accepts the client configs
+    needs: [core]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Clone sing-box ${{ env.SB_VERSION }}
+        run: git clone --depth 1 --branch "${SB_VERSION}" https://github.com/SagerNet/sing-box.git src
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: src/go.mod
+          cache-dependency-path: src/go.sum
+
+      - name: Trim protocol registry
+        if: env.SLIM == 'true'
+        run: python3 core/slim-registry.py src/include/registry.go
+
+      - name: Build linux core
+        run: |
+          set -euo pipefail
+          cd src
+          CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -buildid=" -o ../sing-box ./cmd/sing-box
+          cd ..
+          ./sing-box version
+
+      - name: Dump the exact configs the client runs
+        run: cd desktop && go run ./cmd/dumpconfig -out ../cfg
+
+      - name: sing-box check
+        run: |
+          set -euo pipefail
+          for f in cfg/*.json; do
+            echo "::group::check $f"
+            ./sing-box check -c "$f"
+            echo "::endgroup::"
+          done
+
   release:
     name: publish "core" release
-    needs: [core, android]
+    needs: [core, android, verify]
     runs-on: ubuntu-latest
     steps:
       # gh release needs a git repo (and we avoid any doubt about the remote)
@@ -183,6 +238,12 @@ jobs:
           contains only the inbounds/outbounds a SOCKS5 client uses: socks, http,
           mixed, tun, direct, block, dns. No quic, wireguard, utls, clash-api,
           tailscale, naive, usbip, openvpn, openconnect, acme, dhcp or cloudflared.
+
+          Protocol registry trimmed (core/slim-registry.py): vless, vmess, trojan,
+          shadowsocks, shadowtls, snell, ssh, tor, anytls, naive, bridge, groups,
+          clash-api, mdns/fakeip/hosts/resolved DNS transports are not compiled in.
+          A verify job builds this core and runs `sing-box check` on the exact
+          configs the client runs before anything is published.
 
           | Asset | Target |
           |---|---|
