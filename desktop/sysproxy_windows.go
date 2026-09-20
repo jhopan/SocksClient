@@ -3,7 +3,9 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"unsafe"
 
@@ -111,6 +113,159 @@ func notifyProxyChanged() {
 func isAdmin() bool {
 	ok, _, _ := syscall.NewLazyDLL("shell32.dll").NewProc("IsUserAnAdmin").Call()
 	return ok != 0
+}
+
+// ---------------------------------------------------------------- env vars
+
+const envKeyPath = `Environment`
+
+// EnvBackup keeps the user-level proxy environment variables we overwrite.
+// Go, Python, Node, curl and git read these instead of the WinINet settings.
+type EnvBackup struct {
+	HTTPProxy  string `json:"http_proxy"`
+	HTTPSProxy string `json:"https_proxy"`
+	ALLProxy   string `json:"all_proxy"`
+	NOProxy    string `json:"no_proxy"`
+	Valid      bool   `json:"valid"`
+}
+
+func openEnvKey() (registry.Key, error) {
+	return registry.OpenKey(registry.CURRENT_USER, envKeyPath, registry.QUERY_VALUE|registry.SET_VALUE)
+}
+
+func readEnvProxy() (EnvBackup, error) {
+	k, err := openEnvKey()
+	if err != nil {
+		return EnvBackup{}, err
+	}
+	defer k.Close()
+
+	var b EnvBackup
+	b.HTTPProxy, _, _ = k.GetStringValue("HTTP_PROXY")
+	b.HTTPSProxy, _, _ = k.GetStringValue("HTTPS_PROXY")
+	b.ALLProxy, _, _ = k.GetStringValue("ALL_PROXY")
+	b.NOProxy, _, _ = k.GetStringValue("NO_PROXY")
+	b.Valid = true
+	return b, nil
+}
+
+func writeEnvProxy(b EnvBackup) error {
+	k, err := openEnvKey()
+	if err != nil {
+		return err
+	}
+	defer k.Close()
+
+	setPair := func(name, value string) error {
+		if value == "" {
+			k.DeleteValue(name)
+			return nil
+		}
+		return k.SetStringValue(name, value)
+	}
+	names := []string{"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"}
+	values := []string{b.HTTPProxy, b.HTTPSProxy, b.ALLProxy, b.NOProxy}
+	for i, name := range names {
+		if err := setPair(name, values[i]); err != nil {
+			return err
+		}
+	}
+	notifyEnvChanged()
+	return nil
+}
+
+// applyEnvProxy points CLI tools (Go, Python, Node, curl, git) at the local
+// mixed inbound. Returns the previous values for restore.
+func applyEnvProxy(addr string) (EnvBackup, error) {
+	prev, err := readEnvProxy()
+	if err != nil {
+		return EnvBackup{}, err
+	}
+	next := EnvBackup{
+		HTTPProxy:  "http://" + addr,
+		HTTPSProxy: "http://" + addr,
+		ALLProxy:   "socks5://" + addr,
+		NOProxy:    "localhost,127.0.0.1,::1",
+		Valid:      true,
+	}
+	if err := writeEnvProxy(next); err != nil {
+		return EnvBackup{}, err
+	}
+	return prev, nil
+}
+
+// notifyEnvChanged tells newly started processes to pick the variables up.
+func notifyEnvChanged() {
+	env, _ := syscall.UTF16PtrFromString("Environment")
+	user32 := syscall.NewLazyDLL("user32.dll")
+	p := user32.NewProc("SendMessageTimeoutW")
+	p.Call(0xffff, 0x001A, 0, uintptr(unsafe.Pointer(env)), 0x2, 5000, 0) // HWND_BROADCAST, WM_SETTINGCHANGE, SMTO_ABORTIFHUNG
+}
+
+// ---------------------------------------------------------------- WinHTTP
+
+// WinHTTPBackup is the previous `netsh winhttp show proxy` state.
+type WinHTTPBackup struct {
+	Direct bool   `json:"direct"`
+	Proxy  string `json:"proxy"`
+	Bypass string `json:"bypass"`
+	Valid  bool   `json:"valid"`
+}
+
+func runNetsh(args ...string) (string, error) {
+	cmd := exec.Command("netsh.exe", args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
+func readWinHTTPProxy() WinHTTPBackup {
+	out, err := runNetsh("winhttp", "show", "proxy")
+	if err != nil {
+		return WinHTTPBackup{}
+	}
+	b := WinHTTPBackup{Valid: true}
+	lower := strings.ToLower(out)
+	if strings.Contains(lower, "direct access") || strings.Contains(lower, "no proxy server") {
+		b.Direct = true
+		return b
+	}
+	for _, line := range strings.Split(out, "\n") {
+		trimmed := strings.TrimSpace(line)
+		switch {
+		case strings.HasPrefix(trimmed, "Proxy Server(s)"):
+			b.Proxy = strings.TrimSpace(strings.TrimPrefix(strings.SplitN(trimmed, ":", 2)[1], " "))
+		case strings.HasPrefix(trimmed, "Bypass List"):
+			b.Bypass = strings.TrimSpace(strings.TrimPrefix(strings.SplitN(trimmed, ":", 2)[1], " "))
+		}
+	}
+	if b.Proxy == "" {
+		b.Valid = false
+	}
+	return b
+}
+
+func applyWinHTTPProxy(addr string) (WinHTTPBackup, error) {
+	prev := readWinHTTPProxy()
+	if _, err := runNetsh("winhttp", "set", "proxy", addr, "<local>"); err != nil {
+		return prev, err
+	}
+	return prev, nil
+}
+
+func restoreWinHTTPProxy(b WinHTTPBackup) {
+	if !b.Valid {
+		return
+	}
+	if b.Direct {
+		runNetsh("winhttp", "reset", "proxy")
+		return
+	}
+	args := []string{"winhttp", "set", "proxy", b.Proxy}
+	if b.Bypass != "" {
+		args = append(args, b.Bypass)
+	}
+	runNetsh(args...)
 }
 
 // relaunchAsAdmin starts a second, elevated copy of the app (UAC prompt) and

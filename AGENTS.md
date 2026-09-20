@@ -51,7 +51,9 @@ bash scripts/fetch-core.sh        # libbox.aar from the "core" release
 - `tun` — virtual interface, all traffic, needs Administrator. If not elevated, the app offers UAC re-launch.
 - `proxy` — local `mixed` (SOCKS5+HTTP) inbound on `127.0.0.1:<local_port>`, Windows system proxy pointed at it, no admin.
 - Runtime state lives in `%LOCALAPPDATA%\SocksClientDesktop` (`settings.json`, `config.json`, `sing-box.log`, extracted `sing-box.exe`). Never write to the install dir.
-- `settings.json` field `proxy_backup` holds the user's previous WinINet values; restore it on disconnect **and** on startup (crash recovery). Do not clear it without restoring.
+- `settings.json` fields `proxy_backup` / `env_backup` / `winhttp_backup` hold the previous WinINet, environment-variable and WinHTTP values; restore them on disconnect **and** on startup (crash recovery). Do not clear them without restoring.
+- Proxy mode writes three layers (`sysproxy_windows.go`): WinINet registry, `HKCU\Environment` proxy vars, and `netsh winhttp set proxy` (elevated only). Every layer is covered by a round-trip test in `main_test.go` — keep them green.
+- TUN needs no external driver: `sing-tun` embeds `wintun.dll` (amd64/arm/arm64/386) into the core binary. When TUN still fails, it is admin rights or AV/EDR blocking the extracted driver — the app's Diagnosa dialog spells that out.
 - Any change to proxy/tun config must keep `go test ./...` green — `TestProxyModeCarriesTraffic` is the end-to-end proof of the non-TUN path.
 
 ## Release & tag convention (MANDATORY)

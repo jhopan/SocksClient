@@ -23,8 +23,16 @@ Available for **Android** and **Windows Desktop**.
 
 | Mode | How it works | Needs admin | Use when |
 |------|--------------|-------------|----------|
-| **TUN** | sing-box creates a virtual interface and routes all traffic into it | Yes (Windows) | Normal case — all apps go through the tunnel, TCP + UDP |
-| **Proxy** | sing-box opens a local SOCKS5 + HTTP inbound; the Windows system proxy is pointed at it | No | TUN does not start on this machine (missing wintun, driver/AV block, route conflict) |
+| **TUN** | sing-box creates a virtual interface and routes every IP packet into it (wintun is embedded in the core, nothing to install) | Yes | Normal case — all apps including UDP/games go through the tunnel |
+| **Proxy** | sing-box opens a local SOCKS5 + HTTP inbound and three proxy layers are pointed at it: WinINet (browsers, Electron, Edge), user environment variables (`HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY` — Go, Python, Node, curl, git) and WinHTTP when elevated (Windows Update, installers) | No (WinHTTP layer only when elevated) | TUN does not start (AV blocks the wintun driver, no admin, route conflict) |
+
+Apps that keep their own network stack (Steam, most games, torrent clients) ignore all
+three layers and stay direct in proxy mode — point them at `127.0.0.1:2080` manually or
+use TUN when UDP is needed.
+
+The **Diagnosa** button reports: active mode, admin state, core path/version, whether the
+local port is free, the current WinINet/env/WinHTTP values, the tail of `sing-box.log`
+and an advice line derived from it. Turns "TUN does not work" into a reason.
 
 Proxy mode is crash-safe: your previous WinINet proxy values are saved before being replaced and restored on disconnect — and on the next launch if the app was killed while connected.
 

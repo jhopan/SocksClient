@@ -4,6 +4,7 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -71,15 +72,17 @@ type App struct {
 }
 
 type Settings struct {
-	Host        string       `json:"host"`
-	Port        int          `json:"port"`
-	User        string       `json:"user"`
-	Pass        string       `json:"pass"`
-	Tray        bool         `json:"tray"`
-	Mode        string       `json:"mode"`
-	LocalPort   int          `json:"local_port"`
-	SystemProxy bool         `json:"system_proxy"`
-	ProxyBackup *ProxyBackup `json:"proxy_backup,omitempty"`
+	Host        string         `json:"host"`
+	Port        int            `json:"port"`
+	User        string         `json:"user"`
+	Pass        string         `json:"pass"`
+	Tray        bool           `json:"tray"`
+	Mode        string         `json:"mode"`
+	LocalPort   int            `json:"local_port"`
+	SystemProxy bool           `json:"system_proxy"`
+	ProxyBackup *ProxyBackup   `json:"proxy_backup,omitempty"`
+	EnvBackup   *EnvBackup     `json:"env_backup,omitempty"`
+	WinHTTP     *WinHTTPBackup `json:"winhttp_backup,omitempty"`
 }
 
 // runtimeDir keeps the writable bits (settings, config, sing-box.exe, log) out
@@ -279,7 +282,7 @@ func (a *App) runUI() {
 					Label{Text: "Proxy port:", Font: Font{Family: "Segoe UI", PointSize: 9}},
 					LineEdit{AssignTo: &localPortEdit, Text: strconv.Itoa(a.settings.LocalPort), Font: Font{Family: "Segoe UI", PointSize: 9}},
 				}},
-				CheckBox{AssignTo: &sysProxyCB, Text: "Set proxy sistem Windows (mode Proxy)",
+				CheckBox{AssignTo: &sysProxyCB, Text: "Set proxy Windows + env var app (mode Proxy)",
 					Checked: a.settings.SystemProxy, Font: Font{Family: "Segoe UI", PointSize: 9},
 					OnCheckedChanged: func() { a.settings.SystemProxy = sysProxyCB.Checked() }},
 			}},
@@ -306,6 +309,7 @@ func (a *App) runUI() {
 			}},
 			Composite{Layout: HBox{Margins: Margins{Left: 15, Top: 5, Right: 15, Bottom: 5}, Spacing: 6}, Children: []Widget{
 				PushButton{Text: "Cara Pakai", Font: Font{Family: "Segoe UI", PointSize: 9}, OnClicked: func() { a.showHowTo() }},
+				PushButton{Text: "Diagnosa", Font: Font{Family: "Segoe UI", PointSize: 9}, OnClicked: func() { a.showDiagnostics() }},
 				PushButton{Text: "Info Developer", Font: Font{Family: "Segoe UI", PointSize: 9}, OnClicked: func() { a.showDeveloperInfo() }},
 			}},
 			Composite{Layout: VBox{Margins: Margins{Left: 15, Top: 6, Right: 15, Bottom: 10}}, Children: []Widget{
@@ -612,6 +616,17 @@ func (a *App) startCore(mode, host string, port int, user, pass string, localPor
 			return "Set system proxy failed: " + err.Error()
 		}
 		a.settings.ProxyBackup = &prev
+
+		// CLI tools ignore the WinINet registry; they follow HTTP_PROXY etc.
+		if envPrev, err := applyEnvProxy(proxyAddr); err == nil {
+			a.settings.EnvBackup = &envPrev
+		}
+		// WinHTTP (Windows Update, installers, services) needs admin.
+		if isAdmin() {
+			if whPrev, err := applyWinHTTPProxy(proxyAddr); err == nil {
+				a.settings.WinHTTP = &whPrev
+			}
+		}
 		a.saveSettings()
 	}
 
@@ -695,14 +710,30 @@ func (a *App) doDisconnect() {
 	a.disconnBtn.SetEnabled(false)
 }
 
-// restoreSystemProxy puts the WinINet settings back exactly as we found them.
+// restoreSystemProxy puts WinINet, the proxy environment variables and the
+// WinHTTP settings back exactly as we found them.
 func (a *App) restoreSystemProxy() {
-	if a.settings.ProxyBackup == nil || !a.settings.ProxyBackup.Valid {
-		return
+	changed := false
+
+	if a.settings.ProxyBackup != nil && a.settings.ProxyBackup.Valid {
+		writeSystemProxy(*a.settings.ProxyBackup)
+		a.settings.ProxyBackup = nil
+		changed = true
 	}
-	writeSystemProxy(*a.settings.ProxyBackup)
-	a.settings.ProxyBackup = nil
-	a.saveSettings()
+	if a.settings.EnvBackup != nil && a.settings.EnvBackup.Valid {
+		writeEnvProxy(*a.settings.EnvBackup)
+		a.settings.EnvBackup = nil
+		changed = true
+	}
+	if a.settings.WinHTTP != nil && a.settings.WinHTTP.Valid {
+		restoreWinHTTPProxy(*a.settings.WinHTTP)
+		a.settings.WinHTTP = nil
+		changed = true
+	}
+
+	if changed {
+		a.saveSettings()
+	}
 }
 
 func (a *App) killProcess() {
@@ -750,12 +781,94 @@ func (a *App) showHowTo() {
 			"2. Hubungkan PC ke hotspot server\n"+
 			"3. Isi Host, Port, User, Pass\n"+
 			"4. Pilih mode koneksi:\n"+
-			"   - TUN: semua aplikasi lewat tunnel, butuh Administrator\n"+
-			"   - Proxy: tanpa admin, proxy sistem diarahkan ke 127.0.0.1 (default 2080)\n"+
+			"   - TUN: semua paket (TCP + UDP) lewat tunnel, butuh Administrator\n"+
+			"   - Proxy: tanpa admin, tanpa driver. Browser/Electron/Edge ikut otomatis\n"+
+			"     lewat proxy Windows, tool CLI (Go/Python/Node/curl/git) ikut lewat\n"+
+			"     environment variable, layanan WinHTTP ikut kalau dijalankan sebagai admin\n"+
 			"5. Klik Connect Socks VPN\n\n"+
-			"Kalau di laptop ini TUN gagal start, pilih mode Proxy - "+
-			"aplikasi otomatis menawarkan pindah mode saat itu terjadi.",
+			"Kalau TUN gagal start di laptop ini, aplikasi otomatis menawarkan pindah ke\n"+
+			"mode Proxy. Tekan Diagnosa untuk melihat penyebabnya.",
 		walk.MsgBoxIconInformation)
+}
+
+func (a *App) showDiagnostics() {
+	mode := a.currentMode()
+	admin := isAdmin()
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "Mode: %s\n", mode)
+	fmt.Fprintf(&b, "Administrator: %s\n", map[bool]string{true: "ya", false: "tidak"}[admin])
+	if a.statusLabel != nil {
+		fmt.Fprintf(&b, "%s\n", a.statusLabel.Text())
+	}
+
+	if core, err := findSingBox(a); err != nil {
+		fmt.Fprintf(&b, "Core: TIDAK DITEMUKAN (%v)\n", err)
+	} else {
+		fmt.Fprintf(&b, "Core: %s\n", core)
+		cmd := exec.Command(core, "version")
+		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+		if out, err := cmd.Output(); err == nil {
+			fmt.Fprintf(&b, "  %s\n", strings.SplitN(strings.TrimSpace(string(out)), "\n", 2)[0])
+		}
+	}
+
+	port := a.settings.LocalPort
+	fmt.Fprintf(&b, "Proxy lokal: 127.0.0.1:%d (%s)\n", port, portState(port))
+	fmt.Fprintf(&b, "Set proxy otomatis: %s\n", map[bool]string{true: "aktif", false: "nonaktif"}[a.settings.SystemProxy])
+
+	if p, err := readSystemProxy(); err == nil {
+		fmt.Fprintf(&b, "WinINet: enable=%d server=%q\n", p.ProxyEnable, p.ProxyServer)
+	}
+	if e, err := readEnvProxy(); err == nil {
+		fmt.Fprintf(&b, "Env: HTTP_PROXY=%q ALL_PROXY=%q\n", e.HTTPProxy, e.ALLProxy)
+	}
+	switch w := readWinHTTPProxy(); {
+	case !w.Valid:
+		b.WriteString("WinHTTP: tidak terbaca\n")
+	case w.Direct:
+		b.WriteString("WinHTTP: direct (belum diubah)\n")
+	default:
+		fmt.Fprintf(&b, "WinHTTP: %s (bypass %s)\n", w.Proxy, w.Bypass)
+	}
+
+	logTail := tailFile(filepath.Join(a.runDir, "sing-box.log"), 600)
+	if logTail != "" {
+		b.WriteString("\nLog sing-box (ekor):\n" + logTail + "\n")
+	}
+
+	b.WriteString("\nSaran:\n" + a.diagnoseAdvice(mode, admin, logTail))
+	walk.MsgBox(a.mw, "Diagnosa", b.String(), walk.MsgBoxIconInformation)
+}
+
+func portState(port int) string {
+	conn, err := net.DialTimeout("tcp", "127.0.0.1:"+strconv.Itoa(port), 300*time.Millisecond)
+	if err != nil {
+		return "bebas"
+	}
+	conn.Close()
+	return "sudah terpakai"
+}
+
+func (a *App) diagnoseAdvice(mode string, admin bool, logTail string) string {
+	low := strings.ToLower(logTail)
+	switch {
+	case mode == modeTun && !admin:
+		return "TUN butuh Administrator. Connect akan menawarkan jalan sebagai admin,\natau pakai mode Proxy."
+	case strings.Contains(low, "wintun") || strings.Contains(low, "access is denied") || strings.Contains(low, "adapter"):
+		return "Adapter wintun tidak bisa dibuat - biasanya antivirus/EDR memblokir driver bawaan core.\n" +
+			"Tambahkan exclusion untuk folder aplikasi dan %LOCALAPPDATA%\\SocksClientDesktop, restart, coba lagi.\n" +
+			"Sementara pakai mode Proxy."
+	case strings.Contains(low, "address already in use") || strings.Contains(low, "only one usage of each socket address"):
+		return "Port bentrok. Ganti 'Proxy port' di aplikasi lalu connect ulang."
+	case mode == modeProxy:
+		return "Mode Proxy aktif: browser/Electron/Edge ikut otomatis, tool CLI ikut lewat env var,\n" +
+			"layanan WinHTTP ikut kalau app dijalankan sebagai admin.\n" +
+			"App dengan stack sendiri (Steam, game, torrent) tetap langsung - arahkan manual ke\n" +
+			"127.0.0.1:" + strconv.Itoa(a.settings.LocalPort) + ", atau pakai TUN kalau butuh UDP."
+	default:
+		return "Tidak ada masalah terdeteksi."
+	}
 }
 
 func (a *App) showDeveloperInfo() {

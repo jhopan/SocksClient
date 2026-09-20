@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -189,4 +190,70 @@ func freePort(t *testing.T) int {
 	}
 	defer l.Close()
 	return l.Addr().(*net.TCPAddr).Port
+}
+
+// CLI tools (Go/Python/Node/curl) follow these variables, not WinINet.
+func TestEnvProxyRoundTrip(t *testing.T) {
+	before, err := readEnvProxy()
+	if err != nil {
+		t.Fatalf("readEnvProxy: %v", err)
+	}
+
+	backup, err := applyEnvProxy("127.0.0.1:20808")
+	if err != nil {
+		t.Fatalf("applyEnvProxy: %v", err)
+	}
+	defer writeEnvProxy(before)
+
+	during, err := readEnvProxy()
+	if err != nil {
+		t.Fatalf("readEnvProxy (during): %v", err)
+	}
+	if during.HTTPProxy != "http://127.0.0.1:20808" || during.ALLProxy != "socks5://127.0.0.1:20808" {
+		t.Fatalf("env proxy not applied: %+v", during)
+	}
+	if backup != before {
+		t.Fatalf("backup mismatch: got %+v want %+v", backup, before)
+	}
+
+	if err := writeEnvProxy(backup); err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+	after, err := readEnvProxy()
+	if err != nil {
+		t.Fatalf("readEnvProxy (after): %v", err)
+	}
+	if after != before {
+		t.Fatalf("restore mismatch:\n got %+v\nwant %+v", after, before)
+	}
+}
+
+// WinHTTP needs Administrator, so only assert the round-trip when elevated.
+func TestWinHTTPProxyRoundTrip(t *testing.T) {
+	if !isAdmin() {
+		t.Skip("needs Administrator")
+	}
+	before := readWinHTTPProxy()
+	if !before.Valid {
+		t.Skip("cannot read current WinHTTP proxy state")
+	}
+	defer restoreWinHTTPProxy(before)
+
+	backup, err := applyWinHTTPProxy("127.0.0.1:20808")
+	if err != nil {
+		t.Fatalf("applyWinHTTPProxy: %v", err)
+	}
+	during := readWinHTTPProxy()
+	if during.Direct || !strings.Contains(during.Proxy, "20808") {
+		t.Fatalf("winhttp proxy not applied: %+v", during)
+	}
+	if backup != before {
+		t.Fatalf("backup mismatch: got %+v want %+v", backup, before)
+	}
+
+	restoreWinHTTPProxy(backup)
+	after := readWinHTTPProxy()
+	if after != before {
+		t.Fatalf("restore mismatch:\n got %+v\nwant %+v", after, before)
+	}
 }
