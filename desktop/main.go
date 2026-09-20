@@ -24,7 +24,11 @@ func openURL(url string) {
 	exec.Command("rundll32.exe", "url.dll,FileProtocolHandler", url).Start()
 }
 
-//go:embed embed/sing-box.exe embed/app.ico embed/logo_store.png
+// The core is deliberately NOT embedded: it is built by the "Build Core"
+// workflow and fetched with desktop/scripts/fetch-core.sh, so the repo and the
+// binary stay small.
+//
+//go:embed embed/app.ico embed/logo_store.png
 var embeddedFiles embed.FS
 
 const (
@@ -46,6 +50,7 @@ type App struct {
 	connected bool
 	settings  Settings
 	runDir    string
+	appDir    string
 
 	hostEdit      *walk.LineEdit
 	portEdit      *walk.LineEdit
@@ -94,6 +99,9 @@ func runtimeDir() string {
 func main() {
 	app := &App{trayEnabled: true, windowVisible: true}
 	app.runDir = runtimeDir()
+	if exe, err := os.Executable(); err == nil {
+		app.appDir = filepath.Dir(exe)
+	}
 	app.loadSettings()
 
 	// Single instance check via lock file
@@ -185,9 +193,9 @@ func (a *App) loadSettings() {
 	a.settings = Settings{Port: 1080, Tray: true, Mode: modeTun, LocalPort: defaultLocalPort, SystemProxy: true}
 
 	paths := []string{filepath.Join(a.runDir, "settings.json")}
-	if exe, err := os.Executable(); err == nil {
+	if a.appDir != "" {
 		// pre-1.2.0 installs kept settings.json next to the exe (Program Files)
-		paths = append(paths, filepath.Join(filepath.Dir(exe), "settings.json"))
+		paths = append(paths, filepath.Join(a.appDir, "settings.json"))
 	}
 	for _, p := range paths {
 		data, err := os.ReadFile(p)
@@ -558,30 +566,29 @@ func buildProxyConfig(host string, port int, user, pass string, localPort int) m
 	}
 }
 
-func extractSingBox(dir string) (string, error) {
-	// SINGBOX_BIN lets CI/dev test against a freshly built core instead of the
-	// embedded one (the core is not tracked in git anymore).
+// findSingBox locates the core executable: next to the app (installer), in the
+// repo checkout (desktop/embed, put there by scripts/fetch-core.sh) or in the
+// runtime dir. SINGBOX_BIN overrides everything (CI and dev).
+func findSingBox(a *App) (string, error) {
 	if override := os.Getenv("SINGBOX_BIN"); override != "" {
 		return override, nil
 	}
-	binPath := filepath.Join(dir, "sing-box.exe")
-	if st, err := os.Stat(binPath); err == nil && st.Size() > 1024 {
-		return binPath, nil
+	for _, candidate := range []string{
+		filepath.Join(a.appDir, "sing-box.exe"),
+		filepath.Join(a.appDir, "embed", "sing-box.exe"),
+		filepath.Join(a.runDir, "sing-box.exe"),
+	} {
+		if st, err := os.Stat(candidate); err == nil && st.Size() > 1024 {
+			return candidate, nil
+		}
 	}
-	data, err := embeddedFiles.ReadFile("embed/sing-box.exe")
-	if err != nil {
-		return "", err
-	}
-	if err := os.WriteFile(binPath, data, 0755); err != nil {
-		return "", err
-	}
-	return binPath, nil
+	return "", fmt.Errorf("sing-box.exe tidak ditemukan - instal ulang atau jalankan desktop/scripts/fetch-core.sh")
 }
 
 func (a *App) startCore(mode, host string, port int, user, pass string, localPort int) string {
-	binPath, err := extractSingBox(a.runDir)
+	binPath, err := findSingBox(a)
 	if err != nil {
-		return "Extract sing-box failed: " + err.Error()
+		return "Core tidak ditemukan: " + err.Error()
 	}
 
 	var config map[string]interface{}

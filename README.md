@@ -30,6 +30,40 @@ Proxy mode is crash-safe: your previous WinINet proxy values are saved before be
 
 ---
 
+## Core (minimal sing-box)
+
+The repo ships **no binaries**. The sing-box core is built by GitHub Actions
+(`.github/workflows/build-core.yml`) with **zero optional build tags** — only the
+features a SOCKS5 client uses (socks, http, mixed, tun, direct, block, dns). No
+quic, wireguard, utls, clash-api, tailscale, naive, usbip, openvpn, acme or dhcp.
+
+Everything is published to the [**core** release](../../releases/tag/core):
+
+| Asset | Target |
+|-------|--------|
+| `sing-box-<ver>-windows-386.zip` | Windows 32-bit |
+| `sing-box-<ver>-windows-amd64.zip` | Windows 64-bit |
+| `sing-box-<ver>-darwin-amd64.tar.gz` | macOS Intel |
+| `sing-box-<ver>-darwin-arm64.tar.gz` | macOS Apple Silicon |
+| `sing-box-<ver>-linux-amd64.tar.gz` | Linux x86_64, static (Debian/Ubuntu/Alpine/OpenWrt x86) |
+| `sing-box-<ver>-linux-arm64.tar.gz` | Linux arm64 |
+| `sing-box-<ver>-linux-armv7.tar.gz` | Linux armv7 |
+| `sing-box-<ver>-linux-mipsle-softfloat.tar.gz` | OpenWrt / mipsel routers |
+| `libbox.aar` | Android: arm64-v8a, armeabi-v7a, x86, x86_64 |
+
+All binaries are CGO-free and static — drop them on any machine, no runtime needed.
+Rebuild with **Actions → Build Core → Run workflow** (input: sing-box tag, optional
+UPX compression).
+
+Fetch into a checkout:
+
+```bash
+desktop/scripts/fetch-core.sh     # -> desktop/embed/sing-box.exe
+android/scripts/fetch-core.sh     # -> android/app/libs/libbox.aar
+```
+
+---
+
 ## Windows Desktop
 
 Go + Walk (native Win32, no WebView2) + bundled sing-box v1.12.2.
@@ -52,6 +86,7 @@ Grab the installer from [**Releases**](../../releases).
 ```bash
 cd desktop
 # prerequisites: Go 1.25+, windres (mingw-w64), Inno Setup 6 (installer only)
+bash scripts/fetch-core.sh   # pulls the core from the "core" release
 go vet ./...
 go test -count=1 ./...
 windres -o rsrc_windows_amd64.syso app.rc
@@ -60,7 +95,7 @@ go build -ldflags="-s -w -H windowsgui" -o socks-client.exe .
 
 The installer is built from `setup.iss` with `ISCC.exe` (Inno Setup 6), output in `desktop/installer_output/`.
 
-> `desktop/embed/sing-box.exe` is tracked with Git LFS — run `git lfs pull` after cloning.
+> `desktop/embed/sing-box.exe` is downloaded from the `core` release (never committed).
 
 ---
 
@@ -78,7 +113,7 @@ APK built on sing-box (libbox), Java only, zero external dependencies.
 
 ```bash
 cd android
-git lfs pull                # app/libs/libbox.aar
+bash scripts/fetch-core.sh  # pulls libbox.aar from the "core" release
 ./gradlew :app:assembleRelease
 # output: android/app/build/outputs/apk/release/
 ```

@@ -1,1 +1,2 @@
-*.aar filter=lfs diff=lfs merge=lfs -text
+# libbox.aar is built by .github/workflows/build-core.yml and published in the
+# "core" release; android/scripts/fetch-core.sh downloads it. Not tracked here.
