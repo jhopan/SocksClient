@@ -100,10 +100,10 @@ Release tags:
 
 | Target | Tag | Workflow |
 |--------|-----|----------|
-| Android APK | `v1.2.0` | `.github/workflows/build-release.yml` |
+| Android APK | `v1.2.0` | `.github/workflows/build-apk-release.yml` |
 | Windows desktop | `desktop-v1.2.0` | `.github/workflows/build-desktop-release.yml` |
 
-CI (`ci-desktop.yml`) runs `go vet` and `go test` on every push to `main` and on pull requests.
+CI (`ci-desktop.yml`) runs `go vet` and `go test` on every push to `main` and on pull requests. All workflows live in the repo root `.github/workflows/`.
 
 ---
 
