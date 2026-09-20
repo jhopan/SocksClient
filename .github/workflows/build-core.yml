@@ -242,7 +242,7 @@ jobs:
           Protocol registry trimmed (core/slim-registry.py): vless, vmess, trojan,
           shadowsocks, shadowtls, snell, ssh, tor, anytls, naive, bridge, groups,
           clash-api, mdns/fakeip/hosts/resolved DNS transports are not compiled in.
-          A verify job builds this core and runs `sing-box check` on the exact
+          A verify job builds this core and runs 'sing-box check' on the exact
           configs the client runs before anything is published.
 
           | Asset | Target |
