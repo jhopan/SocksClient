@@ -348,7 +348,7 @@ public class MainActivity extends Activity {
     }
 
     private void showDeveloperInfo() {
-        String versionName = "1.1.0";
+        String versionName = "1.2.0";
         try {
             versionName = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
         } catch (Exception ignored) {}

@@ -3,14 +3,38 @@ name: Build & Release Desktop
 on:
   push:
     tags:
-      - 'v*-desktop'
+      - 'desktop-v*'
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
+  test:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: desktop
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test -count=1 ./...
+
   build:
+    needs: test
     runs-on: windows-latest
     defaults:
       run:
@@ -64,26 +88,30 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: desktop/installer_output/*.exe
-          name: "Socks Client Desktop v${{ env.VERSION }}"
+          name: "Socks Client Desktop ${{ env.VERSION }}"
           body: |
-            ## Socks Client Desktop v${{ env.VERSION }}
+            ## Socks Client Desktop ${{ env.VERSION }}
 
-            Aplikasi desktop SOCKS5 VPN untuk Windows.
+            Desktop SOCKS5 client for Windows.
 
-            ### 📦 Installer
+            ### Installer
             - `SocksClientDesktop_Setup_v${{ env.VERSION }}.exe`
 
-            ### 🧦 Fitur
-            - SOCKS5 VPN via sing-box v1.12.2
-            - UI native Win32 — ringan tanpa WebView2
-            - System tray — minimize to tray
-            - Single instance + Windows mutex
-            - Butuh Admin (TUN interface)
+            ### What's new
+            - Connection mode selector: **TUN** (all traffic through the tunnel) or **Proxy** (no TUN, no admin)
+            - Proxy mode runs a local SOCKS5 + HTTP inbound and points the Windows system proxy at it
+            - Proxy settings are restored exactly as found on disconnect (crash-safe)
+            - If TUN fails to start, the app offers to switch to proxy mode
+            - Runtime files (settings, config, log, sing-box.exe) moved to `%LOCALAPPDATA%\SocksClientDesktop`
+            - Proxy mode works without Administrator rights (TUN re-launches elevated on demand)
 
-            ### ⚠️ Cara Install
-            1. Download installer
-            2. Klik kanan → Run as Administrator
-            3. Ikuti wizard instalasi
-            4. Centang "Launch" → UAC → jalankan
+            ### Install
+            1. Download the installer
+            2. Run it (admin is required to write into Program Files)
+            3. Pick a mode on first launch
+
+            ### Requirements
+            - Windows 10/11 (64-bit)
+            - Administrator only for TUN mode
           draft: false
           prerelease: false
