@@ -10,7 +10,7 @@ func TestReferencedTagsExist(t *testing.T) {
 		"tun":          Tun("10.12.132.225", 1080, "user", "pass", TunOptions{}),
 		"tun-gvisor":   Tun("10.12.132.225", 1080, "user", "pass", TunOptions{Stack: StackGVisor}),
 		"tun-hostname": Tun("server.example.com", 1080, "", "", TunOptions{}),
-		"proxy":        Proxy("10.12.132.225", 1080, "user", "pass", 2080),
+		"proxy":        Proxy("10.12.132.225", 1080, "user", "pass", ProxyOptions{LocalPort: 2080}),
 	}
 
 	for name, cfg := range cases {

@@ -410,7 +410,7 @@ func (a *App) tunMTU() int {
 	if a.settings.MTU >= 576 && a.settings.MTU <= 9000 {
 		return a.settings.MTU
 	}
-	return 9000
+	return boxcfg.DefaultTunMTU
 }
 
 func (a *App) setStack(stack string) {
@@ -629,7 +629,7 @@ func (a *App) startCore(mode, host string, port int, user, pass string, localPor
 	var config map[string]interface{}
 	proxyAddr := ""
 	if mode == modeProxy {
-		config = boxcfg.Proxy(host, port, user, pass, localPort)
+		config = boxcfg.Proxy(host, port, user, pass, boxcfg.ProxyOptions{LocalPort: localPort})
 		proxyAddr = "127.0.0.1:" + strconv.Itoa(localPort)
 	} else {
 		config = boxcfg.Tun(host, port, user, pass, boxcfg.TunOptions{Stack: a.settings.Stack, MTU: a.settings.MTU})

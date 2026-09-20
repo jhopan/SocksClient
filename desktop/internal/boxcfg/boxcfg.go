@@ -20,8 +20,10 @@ const (
 
 // TunOptions carries what the UI lets the user change.
 type TunOptions struct {
-	Stack string // StackSystem or StackGVisor
-	MTU   int    // 0 = default
+	Stack         string // StackSystem or StackGVisor
+	MTU           int    // 0 = default (9000)
+	InterfaceName string // TUN adapter name; "sb-tun" when empty
+	LogLevel      string // sing-box log level; "info" when empty
 }
 
 func (o TunOptions) stack() string {
@@ -31,11 +33,30 @@ func (o TunOptions) stack() string {
 	return StackSystem
 }
 
+// DefaultTunMTU is deliberately on the safe side: hotspot networks frequently
+// carry a lower MTU, and oversized packets either stall (PMTU blackhole) or get
+// fragmented. 1400 leaves room for the SOCKS overhead on any path >= 1480.
+const DefaultTunMTU = 1400
+
 func (o TunOptions) mtu() int {
 	if o.MTU >= 576 && o.MTU <= 9000 {
 		return o.MTU
 	}
-	return 9000
+	return DefaultTunMTU
+}
+
+func (o TunOptions) interfaceName() string {
+	if o.InterfaceName != "" {
+		return o.InterfaceName
+	}
+	return "sb-tun"
+}
+
+func (o TunOptions) logLevel() string {
+	if o.LogLevel != "" {
+		return o.LogLevel
+	}
+	return "info"
 }
 
 func socksOutbound(host string, port int, user, pass string) map[string]interface{} {
@@ -89,7 +110,7 @@ func isIP(host string) bool {
 // hands out a LAN resolver cannot leak queries outside the tunnel.
 func Tun(host string, port int, user, pass string, opts TunOptions) map[string]interface{} {
 	return map[string]interface{}{
-		"log": map[string]interface{}{"level": "info"},
+		"log": map[string]interface{}{"level": opts.logLevel()},
 		"dns": map[string]interface{}{
 			"servers": []map[string]interface{}{
 				// queries travel the SOCKS tunnel - a LAN resolver handed out
@@ -105,7 +126,7 @@ func Tun(host string, port int, user, pass string, opts TunOptions) map[string]i
 			"strategy": "ipv4_only",
 		},
 		"inbounds": []map[string]interface{}{{
-			"type": "tun", "interface_name": "sb-tun",
+			"type": "tun", "interface_name": opts.interfaceName(),
 			"address": []string{"172.19.0.1/30"}, "mtu": opts.mtu(),
 			"auto_route": true, "strict_route": false, "stack": opts.stack(),
 		}},
@@ -133,14 +154,34 @@ func Tun(host string, port int, user, pass string, opts TunOptions) map[string]i
 	}
 }
 
+// ProxyOptions carries the proxy-mode knobs.
+type ProxyOptions struct {
+	LocalPort int    // listen port for the local mixed inbound
+	LogLevel  string // sing-box log level; "info" when empty
+}
+
+func (o ProxyOptions) localPort() int {
+	if o.LocalPort >= 1024 && o.LocalPort <= 65535 {
+		return o.LocalPort
+	}
+	return 2080
+}
+
+func (o ProxyOptions) logLevel() string {
+	if o.LogLevel != "" {
+		return o.LogLevel
+	}
+	return "info"
+}
+
 // Proxy is the non-TUN mode: one local mixed inbound (SOCKS5 + HTTP), no
 // interface, no routes, no admin rights.
-func Proxy(host string, port int, user, pass string, localPort int) map[string]interface{} {
+func Proxy(host string, port int, user, pass string, opts ProxyOptions) map[string]interface{} {
 	return map[string]interface{}{
-		"log": map[string]interface{}{"level": "info"},
+		"log": map[string]interface{}{"level": opts.logLevel()},
 		"inbounds": []map[string]interface{}{{
 			"type": "mixed", "tag": "mixed-in",
-			"listen": "127.0.0.1", "listen_port": localPort,
+			"listen": "127.0.0.1", "listen_port": opts.localPort(),
 		}},
 		"outbounds": []map[string]interface{}{socksOutbound(host, port, user, pass)},
 	}

@@ -23,8 +23,16 @@ Available for **Android** and **Windows Desktop**.
 
 | Mode | How it works | Needs admin | Use when |
 |------|--------------|-------------|----------|
-| **TUN** | sing-box creates a virtual interface and routes every IP packet into it (wintun is embedded in the core, nothing to install). TUN stack `system` or `gvisor`, MTU adjustable | Yes | Normal case — all apps including UDP/games go through the tunnel |
+| **TUN** | sing-box creates a virtual interface and routes every IP packet into it (wintun is embedded in the core, nothing to install). TUN stack `gvisor` (default) or `system`, MTU default **1400** | Yes | Normal case — all apps including UDP/games go through the tunnel |
 | **Proxy** | sing-box opens a local SOCKS5 + HTTP inbound and three proxy layers are pointed at it: WinINet (browsers, Electron, Edge), user environment variables (`HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY` — Go, Python, Node, curl, git) and WinHTTP when elevated (Windows Update, installers) | No (WinHTTP layer only when elevated) | TUN does not start (AV blocks the wintun driver, no admin, route conflict) |
+
+### TUN defaults (and when to change them)
+
+| Setting | Default | Why | Change when |
+|---|---|---|---|
+| TUN stack | `gvisor` | pure-Go userspace stack, not affected by flaky NIC drivers / WFP filters; the safe default on "some laptops TUN does not work" | back to `system` for lower CPU when TUN already works |
+| MTU | `1400` | hotspot paths often carry a smaller MTU; oversized packets stall or fragment (PMTU blackhole). 1400 leaves headroom for SOCKS overhead | raise to 9000 on a clean LAN for slightly better bulk throughput |
+| DNS strategy | `ipv4_only` | the SOCKS hotspot path is IPv4; v6 queries would have nowhere sane to go | only if the server gains real IPv6 routing |
 
 Apps that keep their own network stack (Steam, most games, torrent clients) ignore all
 three layers and stay direct in proxy mode — point them at `127.0.0.1:2080` manually or

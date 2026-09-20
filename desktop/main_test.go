@@ -26,7 +26,7 @@ func TestConfigsAcceptedBySingBox(t *testing.T) {
 		"tun":    boxcfg.Tun("10.12.132.225", 1080, "user", "pass", boxcfg.TunOptions{}),
 		"gvisor": boxcfg.Tun("10.12.132.225", 1080, "user", "pass", boxcfg.TunOptions{Stack: boxcfg.StackGVisor}),
 		"host":   boxcfg.Tun("server.example.com", 1080, "user", "pass", boxcfg.TunOptions{}),
-		"proxy":  boxcfg.Proxy("10.12.132.225", 1080, "user", "pass", defaultLocalPort),
+		"proxy":  boxcfg.Proxy("10.12.132.225", 1080, "user", "pass", boxcfg.ProxyOptions{LocalPort: defaultLocalPort}),
 	}
 
 	for name, cfg := range cases {
@@ -112,7 +112,7 @@ func TestProxyModeCarriesTraffic(t *testing.T) {
 	waitPort(t, socksPort)
 
 	proxyCmd := startSingBox(t, bin, dir, "proxy-mode.json",
-		boxcfg.Proxy("127.0.0.1", socksPort, "", "", mixedPort))
+		boxcfg.Proxy("127.0.0.1", socksPort, "", "", boxcfg.ProxyOptions{LocalPort: mixedPort}))
 	defer killCmd(proxyCmd)
 	waitPort(t, mixedPort)
 
