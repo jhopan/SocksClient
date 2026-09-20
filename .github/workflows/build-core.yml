@@ -143,7 +143,7 @@ jobs:
           mkdir -p dist
           cd src
           gomobile bind -v -o ../dist/libbox.aar \
-            -target android -androidapi 24 \
+            -target "android/arm64,android/arm" -androidapi 24 \
             -javapkg=io.nekohasekai -libname=box \
             -trimpath -buildvcs=false \
             -ldflags "-s -w -buildid= -checklinkname=0 -X github.com/sagernet/sing-box/constant.Version=${SB_VERSION}-minimal" \
