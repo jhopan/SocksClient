@@ -1,0 +1,188 @@
+name: Build Core
+
+# Builds the minimal sing-box core that the clients ship:
+# only what a SOCKS5 client needs (socks/http/mixed/tun/direct/dns) - all
+# optional features (quic, wireguard, utls, clash-api, tailscale, naive,
+# usbip, openvpn, acme, dhcp) are left out.
+#
+# Android gets libbox.aar (keeps with_gvisor, Android TUN needs that stack).
+# Everything is published to the "core" release.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: sing-box tag to build
+        required: false
+        default: v1.14.1
+  push:
+    tags:
+      - 'core*'
+
+permissions:
+  contents: write
+
+env:
+  SB_VERSION: ${{ inputs.version || 'v1.14.1' }}
+
+jobs:
+  core:
+    name: core ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: windows-386, goos: windows, goarch: '386' }
+          - { name: windows-amd64, goos: windows, goarch: amd64 }
+          - { name: darwin-amd64, goos: darwin, goarch: amd64 }
+          - { name: darwin-arm64, goos: darwin, goarch: arm64 }
+          - { name: linux-amd64, goos: linux, goarch: amd64 }
+          - { name: linux-arm64, goos: linux, goarch: arm64 }
+          - { name: linux-armv7, goos: linux, goarch: arm, goarm: '7' }
+          - { name: linux-mipsle-softfloat, goos: linux, goarch: mipsle, gomips: softfloat }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Clone sing-box ${{ env.SB_VERSION }}
+        run: git clone --depth 1 --branch "${SB_VERSION}" https://github.com/SagerNet/sing-box.git src
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: src/go.mod
+          cache-dependency-path: src/go.sum
+
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          GOARM: ${{ matrix.goarm }}
+          GOMIPS: ${{ matrix.gomips }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          ext=""
+          if [ "$GOOS" = "windows" ]; then ext=".exe"; fi
+          cd src
+          CGO_ENABLED=0 go build -trimpath \
+            -ldflags "-s -w -buildid= -X github.com/sagernet/sing-box/constant.Version=${SB_VERSION}-minimal" \
+            -o "../dist/sing-box${ext}" ./cmd/sing-box
+          cd ..
+          dist/sing-box${ext} version
+
+      - name: Package
+        run: |
+          set -euo pipefail
+          cd dist
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            zip -q "sing-box-${SB_VERSION}-${{ matrix.name }}.zip" sing-box.exe
+            rm sing-box.exe
+          else
+            tar -czf "sing-box-${SB_VERSION}-${{ matrix.name }}.tar.gz" sing-box
+            rm sing-box
+          fi
+          sha256sum * | tee "SHA256SUMS-${{ matrix.name }}.txt"
+          ls -lh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: core-${{ matrix.name }}
+          path: dist/*
+          if-no-files-found: error
+
+  android:
+    name: core android (libbox.aar)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Clone sing-box ${{ env.SB_VERSION }}
+        run: git clone --depth 1 --branch "${SB_VERSION}" https://github.com/SagerNet/sing-box.git src
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: src/go.mod
+          cache-dependency-path: src/go.sum
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install NDK
+        run: sdkmanager "ndk;27.2.12479018"
+
+      - name: Install gomobile
+        run: |
+          go install -v github.com/sagernet/gomobile/cmd/gomobile@v0.1.13
+          go install -v github.com/sagernet/gomobile/cmd/gobind@v0.1.13
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Build libbox.aar
+        run: |
+          set -euo pipefail
+          export ANDROID_NDK_HOME="${ANDROID_SDK_ROOT:-$ANDROID_HOME}/ndk/27.2.12479018"
+          echo "NDK: $ANDROID_NDK_HOME"
+          mkdir -p dist
+          cd src
+          gomobile bind -v -o ../dist/libbox.aar \
+            -target android -androidapi 24 \
+            -javapkg=io.nekohasekai -libname=box \
+            -trimpath -buildvcs=false \
+            -ldflags "-s -w -buildid= -X github.com/sagernet/sing-box/constant.Version=${SB_VERSION}-minimal" \
+            -tags "with_gvisor,badlinkname" ./experimental/libbox
+          cd ..
+          ls -lh dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: core-android
+          path: dist/libbox.aar
+          if-no-files-found: error
+
+  release:
+    name: publish "core" release
+    needs: [core, android]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          ls -lh out
+          cat out/SHA256SUMS-*.txt > out/SHA256SUMS.txt
+          notes="Minimal sing-box core for Socks Client.
+
+          Built from sing-box ${SB_VERSION} with no optional features - only the
+          inbounds/outbounds a SOCKS5 client needs (socks, http, mixed, tun,
+          direct, block, dns). No quic, wireguard, utls, clash-api, tailscale,
+          naive, usbip, openvpn, acme or dhcp.
+
+          | Asset | Target |
+          |---|---|
+          | sing-box-*-windows-386.zip | Windows 32-bit |
+          | sing-box-*-windows-amd64.zip | Windows 64-bit |
+          | sing-box-*-darwin-amd64.tar.gz | macOS Intel |
+          | sing-box-*-darwin-arm64.tar.gz | macOS Apple Silicon |
+          | sing-box-*-linux-amd64.tar.gz | Linux x86_64 (static: Debian/Ubuntu/Alpine/OpenWrt x86) |
+          | sing-box-*-linux-arm64.tar.gz | Linux arm64 |
+          | sing-box-*-linux-armv7.tar.gz | Linux armv7 |
+          | sing-box-*-linux-mipsle-softfloat.tar.gz | OpenWrt/mips routers |
+          | libbox.aar | Android (arm64-v8a, armeabi-v7a, x86, x86_64) |
+
+          Windows/macOS binaries are static too - no runtime needed."
+          if gh release view core >/dev/null 2>&1; then
+            gh release edit core --title "core" --notes "$notes" --latest=false
+          else
+            gh release create core --title "core" --notes "$notes" --latest=false
+          fi
+          gh release upload core out/* --clobber
+          gh release view core --json tagName,assets --jq '.assets[].name'

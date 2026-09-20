@@ -532,9 +532,16 @@ func buildTunConfig(host string, port int, user, pass string) map[string]interfa
 		"inbounds": []map[string]interface{}{{
 			"type": "tun", "interface_name": "sb-tun",
 			"address": []string{"172.19.0.1/30"}, "mtu": 9000,
-			"auto_route": true, "strict_route": false, "stack": "system", "sniff": true,
+			"auto_route": true, "strict_route": false, "stack": "system",
 		}},
 		"outbounds": []map[string]interface{}{socksOutbound(host, port, user, pass)},
+		"route": map[string]interface{}{
+			"auto_detect_interface": true,
+			// sniff used to live in the tun inbound; sing-box 1.13 moved it to
+			// a route action. The core we ship is built >= 1.13.
+			"rules": []map[string]interface{}{{"action": "sniff"}},
+			"final": "socks-out",
+		},
 	}
 }
 
@@ -552,6 +559,11 @@ func buildProxyConfig(host string, port int, user, pass string, localPort int) m
 }
 
 func extractSingBox(dir string) (string, error) {
+	// SINGBOX_BIN lets CI/dev test against a freshly built core instead of the
+	// embedded one (the core is not tracked in git anymore).
+	if override := os.Getenv("SINGBOX_BIN"); override != "" {
+		return override, nil
+	}
 	binPath := filepath.Join(dir, "sing-box.exe")
 	if st, err := os.Stat(binPath); err == nil && st.Size() > 1024 {
 		return binPath, nil
