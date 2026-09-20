@@ -52,7 +52,7 @@ Android — run from `android/`:
 
 | Target | Tag | Workflow |
 |--------|-----|----------|
-| Android | `v1.2.0` (bumps `versionCode`/`versionName` in `android/app/build.gradle.kts`) | `.github/workflows/build-release.yml` |
+| Android | `v1.2.0` (bumps `versionCode`/`versionName` in `android/app/build.gradle.kts`) | `.github/workflows/build-apk-release.yml` |
 | Desktop | `desktop-v1.2.0` (bumps `appVersion` in `desktop/main.go` + `MyAppVersion` in `desktop/setup.iss`) | `.github/workflows/build-desktop-release.yml` |
 
 Never tag a desktop release as `v*` — `v*` belongs to Android and would trigger the APK workflow.
@@ -76,6 +76,7 @@ Everything inside this repo is in scope. Sibling projects on the same machine (`
 
 ## Pitfalls
 
+- Workflows must sit in the **repo root** `.github/workflows/`. A workflow under `android/.github/` is never read by GitHub and silently does nothing.
 - sing-box v1.12 (desktop) wants `"address"` in the tun inbound; older versions used `inet4_address`. The Android core is v1.10.x and rejects route-rule `"action"` fields — do not copy desktop config into the Android builder.
 - TUN needs Administrator; proxy mode must stay usable unelevated — do not re-add `requireAdministrator` to `desktop/app.manifest`.
 - `walk` handles must be touched on the UI thread: cross-goroutine updates go through `a.mw.Synchronize`.

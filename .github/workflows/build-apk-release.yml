@@ -12,6 +12,9 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -36,33 +39,35 @@ jobs:
       - name: Rename APKs
         run: |
           cd app/build/outputs/apk/release
-          VERSION=$(grep 'versionName' ../../../build.gradle.kts | head -1 | sed 's/.*"\(.*\)".*/\1/')
-          mv app-arm64-v8a-release.apk "SocksClient-v${VERSION}-arm64-v8a.apk"
-          mv app-armeabi-v7a-release.apk "SocksClient-v${VERSION}-armeabi-v7a.apk"
-          mv app-universal-release.apk "SocksClient-v${VERSION}-universal.apk"
+          VERSION=$(grep 'versionName' ../../../../build.gradle.kts | head -1 | sed 's/.*"\(.*\)".*/\1/')
           echo "VERSION=${VERSION}" >> $GITHUB_ENV
+          mv app-arm64-v8a-release.apk "SocksClient-${VERSION}-arm64-v8a.apk"
+          mv app-armeabi-v7a-release.apk "SocksClient-${VERSION}-armeabi-v7a.apk"
+          mv app-universal-release.apk "SocksClient-${VERSION}-universal.apk"
           ls -lh *.apk
 
       - name: Upload APKs as artifacts
         uses: actions/upload-artifact@v4
         with:
           name: SocksClient-APKs
-          path: app/build/outputs/apk/release/*.apk
+          path: android/app/build/outputs/apk/release/*.apk
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: app/build/outputs/apk/release/*.apk
-          name: "Socks Client v${{ env.VERSION }}"
+          files: android/app/build/outputs/apk/release/*.apk
+          name: "Socks Client ${{ env.VERSION }}"
           body: |
-            ## Socks Client v${{ env.VERSION }}
-            
+            ## Socks Client ${{ env.VERSION }}
+
             ### Download APK
-            | File | Arsitektur | Keterangan |
-            |------|-----------|------------|
-            | `SocksClient-v${{ env.VERSION }}-arm64-v8a.apk` | 64-bit | HP modern (95% HP) |
-            | `SocksClient-v${{ env.VERSION }}-armeabi-v7a.apk` | 32-bit | HP lama |
-            | `SocksClient-v${{ env.VERSION }}-universal.apk` | Semua | Universal |
+            | File | Architecture | Notes |
+            |------|--------------|-------|
+            | `SocksClient-${{ env.VERSION }}-arm64-v8a.apk` | 64-bit | modern devices |
+            | `SocksClient-${{ env.VERSION }}-armeabi-v7a.apk` | 32-bit | older devices |
+            | `SocksClient-${{ env.VERSION }}-universal.apk` | all | works everywhere |
+
+            Windows desktop installer: see the `desktop-v${{ env.VERSION }}` release.
           draft: false
           prerelease: false
