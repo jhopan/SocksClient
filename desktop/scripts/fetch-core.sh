@@ -14,15 +14,25 @@ set -euo pipefail
 GH_REPO="${GH_REPO:-jhopan/SocksClient}"
 TAG="${TAG:-core}"
 DEST="${DEST:-$(cd "$(dirname "$0")/.." && pwd)/embed}"
-PATTERN="${PATTERN:-windows-amd64}"
+SUFFIX="${SUFFIX:-windows-amd64.zip}"
 
 if [ -z "${ASSET:-}" ]; then
   if command -v gh >/dev/null 2>&1; then
     ASSET="$(gh release view "$TAG" -R "$GH_REPO" --json assets \
-      --jq "[.assets[].name | select(test(\"$PATTERN\"))] | first // empty" 2>/dev/null || true)"
+      --jq "[.assets[].name | select(endswith(\"$SUFFIX\"))] | first // empty" 2>/dev/null || true)"
   fi
 fi
 ASSET="${ASSET:-sing-box-v1.14.1-windows-amd64.zip}"
+
+# curl/unzip are native binaries on Windows: hand them native paths, not
+# /c/... MSYS paths (path conversion is off in this shell).
+to_native() {
+  if command -v cygpath >/dev/null 2>&1; then
+    cygpath -w "$1" | tr '\\' '/'
+  else
+    printf '%s' "$1"
+  fi
+}
 
 mkdir -p "$DEST"
 tmp="$(mktemp -d)"
@@ -30,8 +40,8 @@ trap 'rm -rf "$tmp"' EXIT
 
 url="https://github.com/${GH_REPO}/releases/download/${TAG}/${ASSET}"
 echo "fetching $url"
-curl -fsSL -o "$tmp/core.zip" "$url"
-unzip -o -q "$tmp/core.zip" -d "$tmp"
+curl -fsSL -o "$(to_native "$tmp/core.zip")" "$url"
+unzip -o -q "$(to_native "$tmp/core.zip")" -d "$(to_native "$tmp")"
 mv -f "$tmp/sing-box.exe" "$DEST/sing-box.exe"
 echo "core ready: $DEST/sing-box.exe"
 "$DEST/sing-box.exe" version || true
