@@ -14,13 +14,20 @@ import android.os.ParcelFileDescriptor;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicLong;
 
+import io.nekohasekai.libbox.BridgeOptions;
+import io.nekohasekai.libbox.BridgeSession;
 import io.nekohasekai.libbox.CommandServer;
 import io.nekohasekai.libbox.CommandServerHandler;
+import io.nekohasekai.libbox.ConnectionOwner;
+import io.nekohasekai.libbox.LocalDNSTransport;
+import io.nekohasekai.libbox.NeighborUpdateListener;
 import io.nekohasekai.libbox.InterfaceUpdateListener;
 import io.nekohasekai.libbox.Libbox;
 import io.nekohasekai.libbox.NetworkInterface;
 import io.nekohasekai.libbox.NetworkInterfaceIterator;
 import io.nekohasekai.libbox.PlatformInterface;
+import io.nekohasekai.libbox.PlatformUser;
+import io.nekohasekai.libbox.ShellSession;
 import io.nekohasekai.libbox.RoutePrefix;
 import io.nekohasekai.libbox.RoutePrefixIterator;
 import io.nekohasekai.libbox.SetupOptions;
@@ -29,7 +36,6 @@ import io.nekohasekai.libbox.StringIterator;
 import io.nekohasekai.libbox.SystemProxyStatus;
 import io.nekohasekai.libbox.TunOptions;
 import io.nekohasekai.libbox.WIFIState;
-import io.nekohasekai.libbox.BoxService;
 
 import java.net.Inet4Address;
 import java.net.InetAddress;
@@ -66,7 +72,6 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
     private volatile boolean connecting;
     private volatile boolean stopping;
     private CommandServer commandServer;
-    private BoxService boxService;
     private ParcelFileDescriptor vpnFd;
     private Thread heartbeatThread;
 
@@ -141,10 +146,9 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
             setupOptions.setWorkingPath(getNoBackupFilesDir().getAbsolutePath());
             setupOptions.setTempPath(getCacheDir().getAbsolutePath());
             Libbox.setup(setupOptions);
-            Libbox.redirectStderr(getFileStreamPath("singbox-stderr.log").getAbsolutePath());
 
-            // Start command server
-            commandServer = Libbox.newCommandServer(this, 0);
+            // Start command server (holds the platform bridge and the box instance)
+            commandServer = Libbox.newCommandServer(this, this);
             commandServer.start();
 
             // Build config dan start service (bind_interface = null, pakai auto_detect_interface)
@@ -153,9 +157,7 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
             if (BuildConfig.DEBUG) {
                 logI("config: " + config);
             }
-            boxService = Libbox.newService(config, this);
-            commandServer.setService(boxService);
-            boxService.start();
+            commandServer.startOrReloadService(config, null);
 
             synchronized (lock) {
                 running = true;
@@ -216,17 +218,8 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
         }
 
         try {
-            if (boxService != null) {
-                boxService.close();
-            }
-        } catch (Throwable t) {
-            logE("disconnectCoreOnly close boxService", t);
-        } finally {
-            boxService = null;
-        }
-
-        try {
             if (commandServer != null) {
+                commandServer.closeService();
                 commandServer.close();
             }
         } catch (Throwable t) {
@@ -667,8 +660,10 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
     }
 
     @Override
-    public int findConnectionOwner(int i, String s, int i1, String s1, int i2) throws Exception {
-        return 0;
+    public ConnectionOwner findConnectionOwner(int protocol, String source, int sourcePort,
+                                                String destination, int destinationPort) throws Exception {
+        // Only used to label connections in the (unused) dashboard API.
+        return new ConnectionOwner();
     }
 
     @Override
@@ -738,16 +733,6 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
     }
 
     @Override
-    public String packageNameByUid(int uid) throws Exception {
-        return "";
-    }
-
-    @Override
-    public int uidByPackageName(String packageName) throws Exception {
-        return 0;
-    }
-
-    @Override
     public int openTun(TunOptions options) throws Exception {
         logI("openTun called");
 
@@ -788,12 +773,14 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
 
         if (options.getAutoRoute()) {
             // DNS server
-            StringBox dns = options.getDNSServerAddress();
-            if (dns != null && dns.getValue() != null && !dns.getValue().isEmpty()) {
+            io.nekohasekai.libbox.StringIterator dnsServers = options.getDNSServerAddress();
+            while (dnsServers != null && dnsServers.hasNext()) {
+                String dns = dnsServers.next();
+                if (dns == null || dns.trim().isEmpty()) continue;
                 try {
-                    builder.addDnsServer(dns.getValue());
+                    builder.addDnsServer(dns);
                 } catch (Exception e) {
-                    // Log.w(TAG, "addDnsServer failed: " + dns.getValue(), e);
+                    // Log.w(TAG, "addDnsServer failed: " + dns, e);
                 }
             }
             // Fallback DNS
@@ -889,14 +876,14 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
 
             if (activeNetwork == null) {
                 logI("startDefaultInterfaceMonitor: no active network, report empty");
-                listener.updateDefaultInterface("", 0);
+                listener.updateDefaultInterface("", 0, false, false);
                 return;
             }
 
             android.net.LinkProperties lp = cm.getLinkProperties(activeNetwork);
             if (lp == null) {
                 logI("startDefaultInterfaceMonitor: no LinkProperties, report empty");
-                listener.updateDefaultInterface("", 0);
+                listener.updateDefaultInterface("", 0, false, false);
                 return;
             }
 
@@ -922,7 +909,9 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
             // LAPOR ke sing-box — ini yang bikin auto_detect_interface bekerja!
             listener.updateDefaultInterface(
                     ifaceName != null ? ifaceName : "",
-                    ifaceIndex
+                    ifaceIndex,
+                    false,
+                    false
             );
             logI("startDefaultInterfaceMonitor: reported iface=" + ifaceName
                     + " index=" + ifaceIndex);
@@ -930,7 +919,7 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
         } catch (Exception e) {
             // Log.e(TAG, "startDefaultInterfaceMonitor failed", e);
             try {
-                listener.updateDefaultInterface("", 0);
+                listener.updateDefaultInterface("", 0, false, false);
             } catch (Exception ignored) {}
         }
     }
@@ -946,23 +935,74 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
     }
 
     @Override
-    public boolean usePlatformDefaultInterfaceMonitor() {
-        return true;
-    }
-
-    @Override
-    public boolean usePlatformInterfaceGetter() {
-        return true;
-    }
-
-    @Override
     public boolean useProcFS() {
         return false;
     }
 
     @Override
-    public void writeLog(String s) {
-        logI("libbox: " + s);
+    public boolean usePlatformBridge() {
+        return false;
+    }
+
+    @Override
+    public boolean usePlatformShell() {
+        return false;
+    }
+
+    @Override
+    public String tailscaleHostname() {
+        return "";
+    }
+
+    @Override
+    public String lookupSFTPServer() {
+        return "";
+    }
+
+    @Override
+    public String readSystemSSHHostKey() {
+        return "";
+    }
+
+    @Override
+    public void registerMyInterface(String name) {
+    }
+
+    @Override
+    public PlatformUser lookupUser(String username) {
+        return null;
+    }
+
+    @Override
+    public ShellSession openShellSession(PlatformUser user, String command, StringIterator args,
+                                         String environment, int columns, int rows) {
+        return null;
+    }
+
+    @Override
+    public LocalDNSTransport localDNSTransport() {
+        return null;
+    }
+
+    @Override
+    public BridgeSession createBridge(BridgeOptions options) {
+        return null;
+    }
+
+    @Override
+    public void checkPlatformShell() {
+    }
+
+    @Override
+    public void startNeighborMonitor(NeighborUpdateListener listener) {
+    }
+
+    @Override
+    public void closeNeighborMonitor(NeighborUpdateListener listener) {
+    }
+
+    @Override
+    public void cancelNotification(String tag, int id) {
     }
 
     // ══════════════════════════════════════════════
@@ -975,9 +1015,23 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
     }
 
     @Override
-    public void postServiceClose() {
-        logI("postServiceClose requested by sing-box");
-        new Thread(this::disconnectInternal, "sb-postServiceClose").start();
+    public void serviceStop() {
+        logI("serviceStop requested by sing-box");
+        new Thread(this::disconnectInternal, "sb-serviceStop").start();
+    }
+
+    @Override
+    public int connectSSHAgent() {
+        return -1;
+    }
+
+    @Override
+    public void triggerNativeCrash() {
+    }
+
+    @Override
+    public void writeDebugMessage(String message) {
+        logI("libbox: " + message);
     }
 
     @Override
