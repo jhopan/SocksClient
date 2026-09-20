@@ -1,9 +1,9 @@
-; Socks Client Desktop — Inno Setup Script
+; Socks Client Desktop - Inno Setup Script
 ; Build: Compile with Inno Setup Compiler (free)
 ; Download: https://jrsoftware.org/isdl.php
 
 #define MyAppName "Socks Client Desktop"
-#define MyAppVersion "1.1.0"
+#define MyAppVersion "1.2.0"
 #define MyAppPublisher "JhopanStore"
 #define MyAppExeName "socks-client.exe"
 #define MyAppURL "https://github.com/jhopan/SocksClientByJhopanStore"
@@ -52,9 +52,10 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 Name: "{commonstartup}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: autostart
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Verb: runas; Flags: nowait postinstall skipifsilent shellexec
+Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall skipifsilent
 
 [UninstallDelete]
+Type: filesandordirs; Name: "{localappdata}\SocksClientDesktop"
 Type: files; Name: "{app}\config.json"
 Type: files; Name: "{app}\settings.json"
 Type: files; Name: "{app}\sing-box.exe"

@@ -1,1 +1,0 @@
-# SocksClient by JhopanStore

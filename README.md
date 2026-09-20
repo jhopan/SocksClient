@@ -1,172 +1,122 @@
 <div align="center">
 
-# 🧦 Socks Client by JhopanStore
+# Socks Client
 
-**v1.1.0** | APK: **7.4MB** | Installer: **13MB**
+**v1.2.0**
 
-Client VPN SOCKS5 untuk menghubungkan perangkat ke server SOCKS5 hotspot.
+SOCKS5 client for connecting a device to a SOCKS5 hotspot server.
+Two connection modes: **TUN** (full tunnel) and **Proxy** (no TUN, no admin).
 
-Tersedia untuk **Android** dan **Windows Desktop**.
+Available for **Android** and **Windows Desktop**.
 
-[![Download APK](https://img.shields.io/badge/Download-APK%20v1.1.0-green?style=for-the-badge&logo=android&logoColor=white)](../../releases/latest)
-[![Download Desktop](https://img.shields.io/badge/Download-Installer%20v1.1.0-blue?style=for-the-badge&logo=windows&logoColor=white)](../../releases/latest)
+[![Download APK](https://img.shields.io/badge/Download-APK%20v1.2.0-green?style=for-the-badge&logo=android&logoColor=white)](../../releases/latest)
+[![Download Desktop](https://img.shields.io/badge/Download-Installer%20v1.2.0-blue?style=for-the-badge&logo=windows&logoColor=white)](../../releases/latest)
 
-[![GitHub Release](https://img.shields.io/github/v/release/jhopan/SocksClientByJhopanStore?style=flat-square)](../../releases)
-[![GitHub Downloads](https://img.shields.io/github/downloads/jhopan/SocksClientByJhopanStore/total?style=flat-square)](../../releases)
-[![GitHub Stars](https://img.shields.io/github/stars/jhopan/SocksClientByJhopanStore?style=flat-square)](../../stargazers)
+[![Release](https://img.shields.io/github/v/release/jhopan/SocksClient?style=for-the-badge&color=blue)](../../releases)
+[![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)](LICENSE)
 
 </div>
 
 ---
 
-## 📱 Android
+## Modes
 
-APK Socks Client untuk Android — SOCKS5 VPN client yang ringan dan aman.
+| Mode | How it works | Needs admin | Use when |
+|------|--------------|-------------|----------|
+| **TUN** | sing-box creates a virtual interface and routes all traffic into it | Yes (Windows) | Normal case — all apps go through the tunnel, TCP + UDP |
+| **Proxy** | sing-box opens a local SOCKS5 + HTTP inbound; the Windows system proxy is pointed at it | No | TUN does not start on this machine (missing wintun, driver/AV block, route conflict) |
 
-### ✨ Fitur
-
-- 🧦 **SOCKS5 VPN** via sing-box core v1.10.6 (TCP + UDP)
-- 🔒 **Anti DNS Leak** — DNS remote via tunnel
-- 🛡️ **Anti Routing Loop** — bind_interface + bypass rule
-- ⚡ **Ultra Lightweight** — 7.4MB APK, ~29MB install (57% lebih kecil)
-- 🎯 **Protocol Sniffing** — HTTP/TLS/QUIC auto-detect
-- 🌐 **IPv4 Support** — IPv6 blocked via DNS strategy
-- 📊 **Info Developer** — dialog dengan link Telegram, Website, Trakteer
-
-### 📦 Download
-
-Cek [**Releases**](../../releases) untuk download APK terbaru.
-
-### 🔨 Build dari Source
-
-```bash
-cd android
-./gradlew assembleRelease
-# Output: android/app/build/outputs/apk/release/app-release.apk
-```
-
-**Requirements:**
-- Android Studio / Gradle 8.0+
-- JDK 17+
-- Android SDK 34
-
-### 📋 Changelog
-
-#### v1.1.0 (20 Juni 2026)
-**Size Optimization & Bug Fixes**
-- 🔥 Recompile **sing-box v1.10.6** dengan custom tags (`with_gvisor` only)
-- 📉 APK size **-57%**: 17MB → 7.4MB
-- 📉 libbox.so **-58%**: 52MB → 21.9MB (arm64-v8a)
-- 🐛 Fix disconnect bug — clear last_seen timestamp
-- 🐛 Fix connect failed — remove IPv6 action rule untuk v1.10.x compatibility
-- ✨ Add Info Developer dialog dengan 3 tombol warna
-- 📝 Enable/disable logging untuk production build
-
-#### v1.0.0 (20 Juni 2026)
-- 🎉 Initial release
-- 🧦 SOCKS5 VPN client dengan TCP + UDP support
-- 📊 Traffic counter
-- 🎨 Splash screen
+Proxy mode is crash-safe: your previous WinINet proxy values are saved before being replaced and restored on disconnect — and on the next launch if the app was killed while connected.
 
 ---
 
-## 💻 Desktop (Windows)
+## Windows Desktop
 
-Aplikasi desktop ringan menggunakan **Go + Walk (Win32 Native)** + **sing-box v1.12.2** sebagai core VPN.
+Go + Walk (native Win32, no WebView2) + bundled sing-box v1.12.2.
 
-### ✨ Fitur
+### Features
+- Mode selector: TUN / Proxy
+- Proxy mode needs no Administrator rights and no TUN interface
+- Automatic fallback offer when TUN fails right after start
+- System proxy set/restore via WinINet, with a persisted backup
+- System tray, minimize-to-tray, single instance (Windows mutex)
+- Process tree cleanup on exit (no orphan sing-box)
+- Inno Setup installer with silent auto-upgrade
+- Runtime files live in `%LOCALAPPDATA%\SocksClientDesktop`
 
-- 🧦 **SOCKS5 VPN** via sing-box v1.12.2 core (bundled)
-- 🖥️ **UI Native Win32** (Walk) — ringan, tanpa WebView2
-- 🗂️ **System Tray** — minimize ke tray, tidak keluar
-- 🔒 **Single Instance** — tidak bisa buka 2x (Windows mutex)
-- 🪟 **Installer** (Inno Setup) — auto-upgrade, auto-close app
-- 🛡️ **Process Cleanup** — kill process tree on exit (no orphan TUN)
-- 📱 **Info Developer Dialog** — link ke Telegram, Website, Trakteer
-- ⚡ **Lightweight** — RAM ~12MB, file size ~13MB
-- ✅ **Windows 32-bit & 64-bit** — kompatibel semua Windows
+### Download
+Grab the installer from [**Releases**](../../releases).
 
-### 📦 Download
-
-Download installer dari [**Releases**](../../releases).
-
-> ⚠️ **Butuh Hak Admin** — App memerlukan hak administrator untuk membuat TUN interface (sing-box).
-
-### 🔨 Build dari Source
+### Build from source
 
 ```bash
 cd desktop
-
-# Prerequisites: Go 1.25+, GCC (CGO), Inno Setup 6
-
-# Build app (64-bit GUI)
+# prerequisites: Go 1.25+, windres (mingw-w64), Inno Setup 6 (installer only)
+go vet ./...
+go test -count=1 ./...
+windres -o rsrc_windows_amd64.syso app.rc
 go build -ldflags="-s -w -H windowsgui" -o socks-client.exe .
-
-# Build installer
-# 1. Buka Inno Setup 6
-# 2. Open File → setup.iss
-# 3. Build → Compile (Ctrl+F9)
-# Output: installer_output/SocksClientDesktop_Setup_v1.1.0.exe
 ```
 
-**Requirements:**
-- Go 1.25+
-- GCC (MinGW-w64 atau TDM-GCC untuk CGO)
-- Inno Setup 6 (untuk build installer)
+The installer is built from `setup.iss` with `ISCC.exe` (Inno Setup 6), output in `desktop/installer_output/`.
 
-### 🤖 Build via GitHub Actions
+> `desktop/embed/sing-box.exe` is tracked with Git LFS — run `git lfs pull` after cloning.
 
-Push tag dengan format `v*-desktop` (contoh: `v1.2.0-desktop`) — GitHub Actions otomatis build dan release installer.
+---
+
+## Android
+
+APK built on sing-box (libbox), Java only, zero external dependencies.
+
+### Features
+- SOCKS5 VPN via sing-box core (TCP + UDP)
+- Anti DNS leak, anti routing loop (`bind_interface` + bypass rule)
+- Protocol sniffing (HTTP/TLS/QUIC), IPv4 only
+- Traffic counter, splash screen, Info Developer dialog
+
+### Build from source
 
 ```bash
-git tag v1.2.0-desktop
-git push origin v1.2.0-desktop
+cd android
+git lfs pull                # app/libs/libbox.aar
+./gradlew :app:assembleRelease
+# output: android/app/build/outputs/apk/release/
 ```
 
-### 📁 Struktur Project
+Requirements: JDK 17+, Android SDK 35.
 
-```
-desktop/
-├── main.go              ← Semua kode (UI + logic + tray)
-├── go.mod / go.sum
-├── app.ico              ← Logo socks (ICO untuk taskbar + tray)
-├── app.manifest         ← Admin manifest (UAC)
-├── app.rc               ← Resource script
-├── rsrc_windows_amd64.syso
-├── setup.iss            ← Inno Setup script (installer)
-├── embed/
-│   ├── sing-box.exe     ← Core VPN v1.12.2 (Git LFS)
-│   ├── app.ico          ← Logo socks (embedded)
-│   └── logo_store.png   ← Banner JhopanStore
-└── .gitignore
-```
-
-### 📋 Changelog
-
-#### v1.1.0 (28 Juni 2026)
-**🎉 Rilis Perdana Desktop Windows**
-- 🧦 SOCKS5 VPN via sing-box v1.12.2 (bundled)
-- 🖥️ UI native Win32 (Walk) — ringan, tanpa WebView2
-- 🗂️ System tray + minimize to tray
-- 🔒 Single instance + Windows mutex
-- 🪟 Installer Inno Setup — silent upgrade, auto UAC
-- 🛡️ Process cleanup — kill process tree on exit
-- 📱 Info Developer dialog
-- ⚡ RAM usage ~12MB, total size ~13MB
+### Configuration notes
+- DNS remote `tcp://8.8.8.8` through the SOCKS tunnel, strategy `ipv4_only`
+- Route rules: server IP direct (anti loop), everything else to the SOCKS outbound
+- sing-box v1.10.x on Android accepts no `action` field in route rules
 
 ---
 
-## 🔗 Links
+## Contributing
 
-- **GitHub**: [jhopan/SocksClientByJhopanStore](https://github.com/jhopan/SocksClientByJhopanStore)
-- **Telegram**: [@jhopan_05](https://t.me/jhopan_05)
-- **Website**: [jhopanstore.my.id](https://jhopanstore.my.id)
-- **Trakteer**: [trakteer.id/jhopan](https://trakteer.id/jhopan)
+See [CONTRIBUTING.md](CONTRIBUTING.md). Agents working in this repo: read [AGENTS.md](AGENTS.md).
+
+Release tags:
+
+| Target | Tag | Workflow |
+|--------|-----|----------|
+| Android APK | `v1.2.0` | `.github/workflows/build-release.yml` |
+| Windows desktop | `desktop-v1.2.0` | `.github/workflows/build-desktop-release.yml` |
+
+CI (`ci-desktop.yml`) runs `go vet` and `go test` on every push to `main` and on pull requests.
 
 ---
 
-## 📄 Lisensi
+## Developer
 
-Open Source — JhopanStore
+**JhopanStore**
 
-**Made with ❤️ by JhopanStore**
+- Telegram: [@jhopan_05](https://t.me/jhopan_05)
+- Website: [jhopanstore.my.id](https://jhopanstore.my.id)
+- Support: [trakteer.id/jhopan](https://trakteer.id/jhopan)
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE).
