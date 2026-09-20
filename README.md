@@ -55,6 +55,10 @@ All binaries are CGO-free and static — drop them on any machine, no runtime ne
 Rebuild with **Actions → Build Core → Run workflow** (input: sing-box tag, optional
 UPX compression).
 
+Build artifacts (installer, raw exe, APK set, core archives) are attached to every
+workflow run under **Actions** -> run -> *Artifacts*; released builds also land in
+[**Releases**](../../releases).
+
 Fetch into a checkout:
 
 ```bash
