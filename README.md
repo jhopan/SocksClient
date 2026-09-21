@@ -2,13 +2,13 @@
 
 # Socks Client
 
-**v1.4.0.1** — SOCKS5 tunnel client for Android and Windows Desktop
+**v1.4.0.2** — SOCKS5 tunnel client for Android and Windows Desktop
 
 Connect a device to your SOCKS5 hotspot server and route **all** traffic through
 it: TCP, UDP and DNS. One mode, tuned for networks where other clients break.
 
-[![Download APK](https://img.shields.io/badge/Android-APK%20v1.4.0.1-3ddc84?style=for-the-badge&logo=android&logoColor=white)](../../releases/latest)
-[![Download Desktop](https://img.shields.io/badge/Windows-Installer%20v1.4.0.1-0078d4?style=for-the-badge&logo=windows&logoColor=white)](../../releases/latest)
+[![Download APK](https://img.shields.io/badge/Android-APK%20v1.4.0.2-3ddc84?style=for-the-badge&logo=android&logoColor=white)](../../releases/latest)
+[![Download Desktop](https://img.shields.io/badge/Windows-Installer%20v1.4.0.2-0078d4?style=for-the-badge&logo=windows&logoColor=white)](../../releases/latest)
 [![Release](https://img.shields.io/github/v/release/jhopan/SocksClient?style=for-the-badge&color=blue)](../../releases)
 [![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)](LICENSE)
 
@@ -63,9 +63,9 @@ sha256sum -c SHA256SUMS.txt
 ## HTTP ping (on/off)
 
 Both clients can prove the tunnel end to end while connected: an `HTTP ping` radio
-button sends `GET /generate_204` every 30 seconds and shows the result next to the
-status (`ping 204 38ms`, or the error). Google's endpoint is tried first, then
-Cloudflare's.
+button sends `GET http://www.gstatic.com/generate_204` every 30 seconds and shows the
+result next to the status (`ping 204 38ms`, or the error). If gstatic is blocked on
+the network you are on, Cloudflare's `generate_204` is used as the fallback.
 
 It is a diagnostic with a side benefit: the request keeps the SOCKS connection
 warm, so a NAT or hotspot that drops idle connections does not silently kill the

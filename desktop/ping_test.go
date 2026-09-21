@@ -117,3 +117,15 @@ func TestWatchPingRetriesSoonerAfterFailure(t *testing.T) {
 		t.Fatalf("hanya %d percobaan - retry cepat tidak jalan", got)
 	}
 }
+
+// Endpoint yang dipakai harus yang disepakati: www.gstatic.com/generate_204.
+func TestPingTargetsUseGstatic(t *testing.T) {
+	if len(pingTargets) == 0 || pingTargets[0] != "http://www.gstatic.com/generate_204" {
+		t.Fatalf("target utama berubah: %v", pingTargets)
+	}
+	for _, target := range pingTargets {
+		if !strings.HasPrefix(target, "http://") {
+			t.Fatalf("target bukan HTTP: %s", target)
+		}
+	}
+}

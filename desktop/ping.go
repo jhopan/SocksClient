@@ -31,10 +31,11 @@ const pingRetryInterval = 10 * time.Second
 
 const pingTimeout = 4 * time.Second
 
-// Dua target supaya satu endpoint yang diblokir jaringan tidak membuat ping
-// selalu gagal. Keduanya mengembalikan 204 tanpa isi.
+// Target utama: www.gstatic.com/generate_204 (204, tanpa isi). Cadangan dipakai
+// HANYA kalau target utama gagal, supaya ping tidak selalu merah di jaringan yang
+// memblokir gstatic.
 var pingTargets = []string{
-	"http://connectivitycheck.gstatic.com/generate_204",
+	"http://www.gstatic.com/generate_204",
 	"http://cp.cloudflare.com/generate_204",
 }
 

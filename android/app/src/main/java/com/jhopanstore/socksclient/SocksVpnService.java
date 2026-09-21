@@ -85,8 +85,10 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
     private static final long PING_RETRY_MS = 10000;
     private static final String PING_PREFS_KEY = "ping_enabled";
     private static final String PING_RESULT_KEY = "ping_result";
+    // Target utama www.gstatic.com/generate_204; cadangan hanya dipakai kalau
+    // target utama gagal.
     private static final String[] PING_TARGETS = {
-            "http://connectivitycheck.gstatic.com/generate_204",
+            "http://www.gstatic.com/generate_204",
             "http://cp.cloudflare.com/generate_204",
     };
     private static final long HEARTBEAT_MS = 10000;
