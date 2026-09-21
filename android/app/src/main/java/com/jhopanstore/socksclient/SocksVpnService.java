@@ -487,6 +487,14 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
     // Sing-box Config Builder
     // ──────────────────────────────────────────────
 
+    /** Anti-loop rule format depends on whether the server is an IP or a name. */
+    private static boolean isIpLiteral(String host) {
+        if (host == null) return false;
+        String h = host.trim();
+        if (h.matches("^\\d{1,3}(\\.\\d{1,3}){3}$")) return true;
+        return h.contains(":") && h.matches("^[0-9a-fA-F:]+$");
+    }
+
     private String buildSingBoxConfig(String host, int port, String user, String pass, String bindIface) {
         StringBuilder sb = new StringBuilder();
         sb.append("{");
@@ -496,65 +504,53 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
         sb.append("\"log\":{\"level\":\"").append(logLevel).append("\",\"timestamp\":true},");
 
         // ── DNS ──
-        // Satu DNS saja: remote via SOCKS TCP. Tanpa local/direct DNS supaya
-        // tidak ada jalur bocor. Query dari OS tetap ditangkap di bawah.
+        // New server format (sing-box >= 1.12; the legacy "address" field was
+        // removed in 1.14, which is the core this app ships). Everything is
+        // resolved through the SOCKS tunnel; "local" is only the bootstrap that
+        // resolves the server hostname itself.
         sb.append("\"dns\":{");
         sb.append("\"servers\":[");
-        sb.append("{\"tag\":\"remote\",\"address\":\"tcp://8.8.8.8\",\"detour\":\"socks-out\"}");
+        sb.append("{\"tag\":\"remote\",\"type\":\"tcp\",\"server\":\"8.8.8.8\",\"detour\":\"socks-out\"},");
+        sb.append("{\"tag\":\"remote-udp\",\"type\":\"udp\",\"server\":\"8.8.8.8\",\"detour\":\"socks-out\"},");
+        sb.append("{\"tag\":\"local\",\"type\":\"local\"}");
         sb.append("],");
         sb.append("\"final\":\"remote\",");
         sb.append("\"strategy\":\"ipv4_only\"");
         sb.append("},");
 
         // ── Inbounds (TUN) ──
-        sb.append("\"inbounds\":[{");
-        sb.append("\"type\":\"tun\",");
-        sb.append("\"tag\":\"tun-in\",");
-        sb.append("\"interface_name\":\"sb-tun\",");
-        sb.append("\"address\":[\"172.19.0.1/30\"],");
-        sb.append("\"mtu\":1400,");
-        sb.append("\"auto_route\":true,");
-        sb.append("\"strict_route\":true,"); // Force semua traffic lewat TUN
-        // Gaming UDP paling aman tanpa sniff/rewrite destination.
-        // Sniff override bisa mengubah destination dan bikin handshake game salah server.
-        sb.append("\"sniff\":false,");
-        sb.append("\"sniff_override_destination\":false");
+        sb.append("\"inbounds\":[{\"type\":\"tun\",\"tag\":\"tun-in\",\"interface_name\":\"sb-tun\",");
+        sb.append("\"address\":[\"172.19.0.1/30\"],\"mtu\":1400,");
+        sb.append("\"auto_route\":true,\"strict_route\":true,");
+        // gVisor stack: L3-L4 translation happens in userspace, so the tunnel
+        // does not depend on the device's kernel/driver quirks. Same choice as
+        // the desktop client.
+        sb.append("\"stack\":\"gvisor\"");
+        // NOTE: "sniff"/"sniff_override_destination" lived here until sing-box
+        // 1.13 removed legacy inbound fields - sniffing is a route action now.
         sb.append("}],");
 
         // ── Outbounds ──
         sb.append("\"outbounds\":[");
 
         // SOCKS5 outbound
-        sb.append("{");
-        sb.append("\"type\":\"socks\",");
-        sb.append("\"tag\":\"socks-out\",");
+        sb.append("{\"type\":\"socks\",\"tag\":\"socks-out\",");
         sb.append("\"server\":\"").append(escapeJson(host)).append("\",");
         sb.append("\"server_port\":").append(port).append(",");
         sb.append("\"version\":\"5\"");
-
-        // Auth opsional
         if (user != null && !user.trim().isEmpty() && pass != null && !pass.isEmpty()) {
             sb.append(",\"username\":\"").append(escapeJson(user.trim())).append("\"");
             sb.append(",\"password\":\"").append(escapeJson(pass)).append("\"");
         }
-
-        // bind_interface agar traffic ke SOCKS server keluar via interface yang benar (bukan loop ke TUN)
+        // bind_interface agar koneksi ke SOCKS server keluar dari interface
+        // fisik, bukan berbalik masuk ke TUN.
         if (bindIface != null && !bindIface.isEmpty()) {
             sb.append(",\"bind_interface\":\"").append(escapeJson(bindIface)).append("\"");
         }
-
         sb.append("},");
 
-        // Block outbound: menampung paket DNS port 53 yang mencoba keluar.
-        // Ini pengganti "action":"hijack-dns" yang tidak ada di sing-box 1.10:
-        // DNS jawaban yang benar datang dari server "remote" via socks-out
-        // (system DNS Android diarahkan ke VPN DNS), query bocor di-drop.
-        sb.append("{\"type\":\"block\",\"tag\":\"dns-out\"},");
-
-        // Direct outbound (untuk bootstrap + bypass SOCKS server IP)
-        sb.append("{");
-        sb.append("\"type\":\"direct\",");
-        sb.append("\"tag\":\"direct\"");
+        // Direct outbound (bootstrap + bypass IP server SOCKS)
+        sb.append("{\"type\":\"direct\",\"tag\":\"direct\"");
         if (bindIface != null && !bindIface.isEmpty()) {
             sb.append(",\"bind_interface\":\"").append(escapeJson(bindIface)).append("\"");
         }
@@ -565,23 +561,25 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
         // ── Route ──
         sb.append("\"route\":{");
         sb.append("\"auto_detect_interface\":true,");
+        // Resolver untuk hostname server (bootstrap) - lihat blok dns di atas.
+        sb.append("\"default_domain_resolver\":{\"server\":\"local\"},");
         sb.append("\"rules\":[");
-        // sing-box 1.10 has no "action" field, so DNS anti-leak works in two
-        // layers here: (1) the app's own DNS goes to the server above, which
-        // detours through socks-out; (2) any raw port-53 packet that tries to
-        // slip out of the VPN (hardcoded resolver in an app) is dropped by the
-        // dns-out block outbound. No silent leak path is left open.
-        sb.append("{\"port\":53,\"outbound\":\"dns-out\"},");
+        // Lapis anti-DNS-leak: SEMUA paket DNS (termasuk yang menembak resolver
+        // LAN/ISP) ditangkap di sini dan dijawab server "remote" lewat socks-out.
+        // Sebelumnya memakai block port-53 yang khas sing-box 1.10; "action"
+        // hijack-dns tersedia sejak 1.11 dan core kita 1.14.
+        sb.append("{\"protocol\":\"dns\",\"action\":\"hijack-dns\"},");
 
-        // SOCKS server IP → direct (anti routing loop!)
-        sb.append("{\"ip_cidr\":[\"").append(escapeJson(host)).append("/32\"],\"outbound\":\"direct\"}");
-
-        // Note: IPv6 blocking handled by DNS strategy "ipv4_only" (line 514)
-        // sing-box v1.10.x does not support "action" field in route rules
+        // Server SOCKS -> direct (anti routing loop)
+        if (isIpLiteral(host)) {
+            sb.append("{\"ip_cidr\":[\"").append(escapeJson(host)).append("/32\"],\"outbound\":\"direct\"}");
+        } else {
+            sb.append("{\"domain\":[\"").append(escapeJson(host)).append("\"],\"outbound\":\"direct\"}");
+        }
 
         sb.append("],");
         sb.append("\"final\":\"socks-out\"");
-        sb.append("}");
+        sb.append("},");
 
         sb.append("}");
         return sb.toString();

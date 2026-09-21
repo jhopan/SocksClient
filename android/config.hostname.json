@@ -1,0 +1,76 @@
+{
+  "log": {
+    "level": "warn",
+    "timestamp": true
+  },
+  "dns": {
+    "servers": [
+      {
+        "tag": "remote",
+        "type": "tcp",
+        "server": "8.8.8.8",
+        "detour": "socks-out"
+      },
+      {
+        "tag": "remote-udp",
+        "type": "udp",
+        "server": "8.8.8.8",
+        "detour": "socks-out"
+      },
+      {
+        "tag": "local",
+        "type": "local"
+      }
+    ],
+    "final": "remote",
+    "strategy": "ipv4_only"
+  },
+  "inbounds": [
+    {
+      "type": "tun",
+      "tag": "tun-in",
+      "interface_name": "sb-tun",
+      "address": [
+        "172.19.0.1/30"
+      ],
+      "mtu": 1400,
+      "auto_route": true,
+      "strict_route": true,
+      "stack": "gvisor"
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "socks",
+      "tag": "socks-out",
+      "server": "vpn.example.com",
+      "server_port": 1080,
+      "version": "5",
+      "username": "user",
+      "password": "pass"
+    },
+    {
+      "type": "direct",
+      "tag": "direct"
+    }
+  ],
+  "route": {
+    "auto_detect_interface": true,
+    "default_domain_resolver": {
+      "server": "local"
+    },
+    "rules": [
+      {
+        "protocol": "dns",
+        "action": "hijack-dns"
+      },
+      {
+        "domain": [
+          "vpn.example.com"
+        ],
+        "outbound": "direct"
+      }
+    ],
+    "final": "socks-out"
+  }
+}

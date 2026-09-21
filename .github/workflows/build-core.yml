@@ -208,10 +208,10 @@ jobs:
       - name: Dump the exact configs the client runs
         run: cd desktop && go run ./cmd/dumpconfig -out ../cfg
 
-      - name: sing-box check
+      - name: sing-box check (desktop configs + Android fixtures)
         run: |
           set -euo pipefail
-          for f in cfg/*.json; do
+          for f in cfg/*.json android/config.*.json; do
             echo "::group::check $f"
             ./sing-box check -c "$f"
             echo "::endgroup::"

@@ -175,10 +175,12 @@ bash scripts/fetch-core.sh  # pulls libbox.aar from the "core" release
 Requirements: JDK 17+, Android SDK 35.
 
 ### Configuration notes
-- DNS remote `tcp://8.8.8.8` through the SOCKS tunnel, strategy `ipv4_only`; the OS resolver handed to apps points only at the VPN DNS, never a public fallback
-- Any raw port-53 packet that bypasses the VPN DNS is dropped (`dns-out` block outbound) — sing-box 1.10 has no `hijack-dns` action, so the leak is closed by construction
-- Route rules: server IP direct (anti loop), everything else to the SOCKS outbound
-- TUN MTU 1400, matching the desktop defaults for hotspot paths
+- Core is sing-box 1.14 (same `core` release as the desktop client), so the config uses the current field set: DNS servers as `{"type":"tcp","server":"8.8.8.8","detour":"socks-out"}`, no `sniff` in the tun inbound, and `"action"` allowed in route rules
+- DNS strategy `ipv4_only`; the resolver handed to apps points only at the VPN DNS, never a public fallback
+- `{"protocol":"dns","action":"hijack-dns"}` catches every DNS query — including an app that hardcodes a resolver — and answers it through `socks-out`
+- Route rules: server IP/hostname direct (anti loop), everything else to the SOCKS outbound
+- TUN stack `gvisor`, MTU 1400 — identical defaults to the desktop client, chosen for machines/networks where the OS stack misbehaves
+- `android/config.example.json` is the config the builder emits; CI runs `sing-box check` on it
 
 ---
 
