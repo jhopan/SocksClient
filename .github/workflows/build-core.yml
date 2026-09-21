@@ -247,8 +247,8 @@ jobs:
           Protocol registry trimmed (core/slim-registry.py): vless, vmess, trojan,
           shadowsocks, shadowtls, snell, ssh, tor, anytls, naive, bridge, groups,
           clash-api, mdns/fakeip/hosts/resolved DNS transports are not compiled in.
-          Built with with_gvisor so the client can offer both TUN stacks
-          (system and gvisor). A verify job runs the config unit tests plus
+          Built with with_gvisor so the gvisor TUN stack the clients pin
+          is present at runtime. A verify job runs the config unit tests plus
           'sing-box check' on the exact configs the client runs before anything
           is published.
 

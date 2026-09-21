@@ -108,6 +108,21 @@ jobs:
           name: SocksClientDesktop-exe
           path: desktop/socks-client.exe
 
+      # Kebijakan rilis: hanya tiga rilis yang dipertahankan - core, APK terbaru,
+      # installer terbaru. Rilis lama dihapus di sini supaya halaman Releases tetap
+      # bersih tanpa perlu aksi manual. Tag git-nya TIDAK dihapus.
+      - name: Delete superseded releases
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release list --limit 100 --json tagName --jq '.[].tagName' \
+            | grep -E '^desktop-v' | grep -v "^desktop-v${{ env.VERSION }}$" \
+            | while read -r tag; do
+                echo "menghapus rilis lama: $tag"
+                gh release delete "$tag" --yes || true
+              done
+
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
@@ -117,29 +132,54 @@ jobs:
             desktop/installer_output/SHA256SUMS.txt
           name: "Socks Client Desktop ${{ env.VERSION }}"
           body: |
-            ## Socks Client Desktop ${{ env.VERSION }}
+            ## Socks Client Desktop ${{ env.VERSION }} - Windows
 
-            Desktop SOCKS5 client for Windows.
+            SOCKS5 tunnel client for Windows. **All** traffic leaves the machine through
+            your SOCKS5 server - TCP, UDP and DNS - with `strict_route` so nothing can
+            bypass the tunnel, while the local network (printer, hotspot admin page)
+            stays reachable.
 
-            ### Installer
-            - `SocksClientDesktop_Setup_v${{ env.VERSION }}.exe`
+            ### Download
+            | File | What it is |
+            |------|------------|
+            | `SocksClientDesktop_Setup_v${{ env.VERSION }}.exe` | installer: app + sing-box core, Start-menu entry, uninstaller |
 
-            ### What's new
-            - TUN only: every IP packet (TCP, UDP, DNS) goes through the tunnel
-            - TUN stack pinned to `gvisor`, MTU pinned to `1400` - the combination that holds up on hotspot paths and on machines whose NIC driver misbehaves with the OS stack
-            - No proxy mode: the app never sets a Windows system proxy, never listens on a local port, and never touches WinINet / environment variables / WinHTTP
-            - Dialogs and Diagnosa updated for the single mode
-            - Runtime files (settings, config, log, sing-box.exe) live in `%LOCALAPPDATA%\SocksClientDesktop`
-
-            Verify what you downloaded: `sha256sum -c SHA256SUMS.txt`
+            ### What is in this build
+            - TUN mode only, on a minimal sing-box core 1.14.1; the manifest requests Administrator, so Windows asks for elevation at launch
+            - TUN stack pinned to `gvisor`, MTU pinned to `1400` - the combination that holds on hotspot paths and on machines whose NIC driver misbehaves with the OS stack
+            - `strict_route: true` blocks traffic that tries to leave outside the tunnel, including DNS, at the Windows Filtering Platform level
+            - Route exclusions for 10/8, 172.16/12, 192.168/16 and 169.254/16 keep the LAN reachable
+            - DNS is answered through the SOCKS server (`1.1.1.1`, `8.8.8.8` as the documented backup); IPv6 is blocked
+            - Network watchdog: if the interface used to reach the server changes (hotspot handover, Wi-Fi to Ethernet), the core is restarted automatically
+            - `HTTP ping` On/Off: `GET http://www.gstatic.com/generate_204` every 30 s, also keeps the SOCKS path warm; Off means zero extra traffic
+            - Server password stored with DPAPI (tied to the Windows account), never in plain text
+            - No proxy mode: the app never sets a system proxy, never listens on a local port, never touches WinINet / environment variables / WinHTTP
+            - Runtime files (`settings.json`, `config.json`, `sing-box.log`) live in `%LOCALAPPDATA%\SocksClientDesktop`; the core sits next to the exe
 
             ### Install
-            1. Download the installer
-            2. Run it (admin is required to write into Program Files)
-            3. Pick a mode on first launch
+            1. Download the installer.
+            2. Run it (elevation is required to write into Program Files).
+            3. Launch, enter the server **IP** and port (plus user/password if needed), press **Connect Socks VPN**.
+
+            ### Verify the download
+            ```bash
+            sha256sum -c SHA256SUMS.txt
+            ```
 
             ### Requirements
-            - Windows 10/11 (64-bit)
-            - Administrator only for TUN mode
+            - Windows 10 or 11 (64-bit)
+            - Administrator (the app requests it - TUN needs it)
+            - A reachable SOCKS5 server that accepts TCP and (optionally) UDP associate
+
+            ### If something goes wrong
+            - Press **Diagnosa** in the app and send the text
+            - Log: `%LOCALAPPDATA%\SocksClientDesktop\sing-box.log`
+            - Self test on a real machine: `desktop/scripts/tun-selftest.sh` (as Administrator)
+            - Symptom to cause table: see the repository README
+
+            ### Links
+            - Android APK: `v${{ env.VERSION }}` release
+            - Tunnel core (sing-box, built here): `core` release
+            - Source: see the repository README
           draft: false
           prerelease: false

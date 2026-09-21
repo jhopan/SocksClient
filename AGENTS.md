@@ -68,6 +68,19 @@ bash scripts/fetch-core.sh        # libbox.aar from the "core" release
 - Android battery: heartbeat and traffic poll are 10s each, the notification is only re-posted when the counters change, and `MainActivity` accepts a 45s-old heartbeat as alive (3 missed beats) - do not tighten these back to 2-3s.
 - Any change to TUN config must keep `go test ./...` green; `desktop/scripts/tun-selftest.sh` is the end-to-end proof on a real machine.
 
+## Release notes and retention (MANDATORY)
+
+- Release notes are never bare. Both release workflows carry the full template in
+  their `Create GitHub Release` step: what the build is, a download table, the
+  feature list for this build, install steps, how to verify the checksum/signature,
+  requirements, and links to the sibling releases. Update that body whenever a
+  feature lands - a release with a one-line body is a bug.
+- Only **three** releases exist at any time: `core`, the newest APK (`v*`) and the
+  newest Windows installer (`desktop-v*`). Both app workflows delete superseded
+  releases right before publishing (`Delete superseded releases`, tags are kept).
+  Do not create a fourth release; if one appears, the retention step is broken.
+- The `core` release is never deleted - the app builds fetch from it.
+
 ## Version policy
 
 - A change that adds a feature or alters behaviour bumps the **normal** version: `1.3.0` -> `1.4.0`.

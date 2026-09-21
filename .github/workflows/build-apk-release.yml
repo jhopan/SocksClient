@@ -92,6 +92,21 @@ jobs:
             android/app/build/outputs/apk/release/*.apk
             android/app/build/outputs/apk/release/SHA256SUMS.txt
 
+      # Kebijakan rilis: hanya tiga rilis yang dipertahankan - core, APK terbaru,
+      # installer terbaru. Rilis lama dihapus di sini supaya halaman Releases tetap
+      # bersih tanpa perlu aksi manual. Tag git-nya TIDAK dihapus.
+      - name: Delete superseded releases
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release list --limit 100 --json tagName --jq '.[].tagName' \
+            | grep -E '^v[0-9]' | grep -v "^v${{ env.VERSION }}$" \
+            | while read -r tag; do
+                echo "menghapus rilis lama: $tag"
+                gh release delete "$tag" --yes || true
+              done
+
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
@@ -101,19 +116,59 @@ jobs:
             android/app/build/outputs/apk/release/SHA256SUMS.txt
           name: "Socks Client ${{ env.VERSION }}"
           body: |
-            ## Socks Client ${{ env.VERSION }}
+            ## Socks Client ${{ env.VERSION }} - Android
 
-            ### Download APK
-            | File | Architecture | Notes |
-            |------|--------------|-------|
-            | `SocksClient-${{ env.VERSION }}-arm64-v8a.apk` | 64-bit | modern devices |
-            | `SocksClient-${{ env.VERSION }}-armeabi-v7a.apk` | 32-bit | older devices |
-            | `SocksClient-${{ env.VERSION }}-universal.apk` | all | works everywhere |
+            SOCKS5 tunnel client. **All** traffic leaves the phone through your SOCKS5
+            server - TCP, UDP and DNS - with no DNS leak and no IPv6 escape. Built for
+            mobile hotspots: TUN stack pinned to `gvisor`, MTU `1400`, DNS captured
+            inside the tunnel.
 
-            Verify what you downloaded: `sha256sum -c SHA256SUMS.txt`
+            ### Download
+            | File | Architecture | For |
+            |------|--------------|-----|
+            | `SocksClient-${{ env.VERSION }}-arm64-v8a.apk` | arm64-v8a (64-bit) | almost every phone from ~2016 onwards |
+            | `SocksClient-${{ env.VERSION }}-armeabi-v7a.apk` | armeabi-v7a (32-bit) | older or low-end devices |
+            | `SocksClient-${{ env.VERSION }}-universal.apk` | all ABIs | when unsure; larger download |
 
-            Signed with the project release key (not the Android debug key).
+            ### What is in this build
+            - TUN mode only, on a minimal sing-box core 1.14.1 (socks/http/mixed/tun/direct/block/local-DNS only - no unused protocol code)
+            - TUN stack pinned to `gvisor`, MTU pinned to `1400`
+            - DNS cannot leak: VPN DNS plus `hijack-dns`, no public resolver at the OS layer, IPv6 routed into the tunnel and then rejected
+            - `HTTP ping` On/Off: `GET http://www.gstatic.com/generate_204` every 30 s, also keeps the SOCKS path warm; Off means zero extra traffic
+            - Survives network switches (default-network callback reloads sing-box) and dark screens (foreground service type `systemExempted`, 10 s heartbeat)
+            - Server password stored encrypted with an Android Keystore AES-GCM key
+            - Server address must be an **IP literal** - a hostname would be resolved outside the tunnel
 
-            Windows desktop installer: see the `desktop-v${{ env.VERSION }}` release.
+            ### Install
+            1. Download the APK matching your phone's architecture.
+            2. Open it and allow installs from this source if Android asks.
+            3. Launch it, enter the server IP and port (plus user/password if your server needs them), tap **Connect** and accept the VPN prompt.
+            4. A later build installs over this one without uninstalling, because every release since 1.3.0 is signed with the same project key.
+
+            ```bash
+            adb install -r SocksClient-${{ env.VERSION }}-arm64-v8a.apk
+            ```
+
+            ### Verify the download
+            ```bash
+            sha256sum -c SHA256SUMS.txt
+            ```
+            Signed with the project release key, never the Android debug key:
+
+            ```
+            Signer: CN=Socks Client, OU=JhopanStore, O=JhopanStore, C=ID
+            SHA-256: 3130e33f139271f5216fbfa150f5f1666fd1c0ba7f6e02455f1fbda37a845886
+            # check it yourself:
+            apksigner verify --print-certs <apk>
+            ```
+
+            ### Requirements
+            - Android 7.0 or newer (minSdk 24), arm64-v8a or armeabi-v7a
+            - A reachable SOCKS5 server that accepts TCP and (optionally) UDP associate
+
+            ### Links
+            - Windows installer: `desktop-v${{ env.VERSION }}` release
+            - Tunnel core (sing-box, built here): `core` release
+            - Source, QA checklist and troubleshooting table: see the repository README
           draft: false
           prerelease: false
