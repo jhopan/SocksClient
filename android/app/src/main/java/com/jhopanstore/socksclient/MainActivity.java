@@ -172,7 +172,7 @@ public class MainActivity extends Activity {
         pingText = text("Ping: -", 13, false, TEXT_SECONDARY);
         root.addView(pingText, marginTop(matchWrap(), 4));
         // Biaya data kecil tapi nyata: satu permintaan 204 tanpa isi tiap 30 detik.
-        root.addView(text("Ping mengirim 204 ke internet lewat tunnel tiap 30 detik (\u00b1 1-2 MB/hari)", 11, false, TEXT_SECONDARY),
+        root.addView(text("204 lewat tunnel tiap 30 detik - keep-alive + cek internet murah (\u00b1 1-2 MB/hari)", 11, false, TEXT_SECONDARY),
                 marginTop(matchWrap(), 2));
 
         statusText = text("", 15, true, TEXT_PRIMARY);

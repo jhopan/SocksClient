@@ -72,7 +72,7 @@ bash scripts/fetch-core.sh        # libbox.aar from the "core" release
 
 - A change that adds a feature or alters behaviour bumps the **normal** version: `1.3.0` -> `1.4.0`.
 - A rebuild that adds no feature (core bump, small fix) increments the **fourth** segment: `1.3.0.1`, `1.3.0.2`, ... and the tag follows (`v1.3.0.1` / `desktop-v1.3.0.1`).
-- Android `versionCode` = `major*10000 + minor*100 + patch*10 + build`, so `1.3.0.1` -> `130001` (always increasing).
+- Android `versionCode` = `major*100000 + minor*10000 + patch*100 + build` (this is what the app actually ships: `1.4.0` -> `140000`, `1.4.0.1` -> `140001`, `1.5.0` -> `150000` - always increasing).
 - Version numbers live in three places: `desktop/main.go` (`appVersion`), `desktop/setup.iss` (`MyAppVersion`), `android/app/build.gradle.kts` (`versionName` + `versionCode`).
 
 ## APK signing (MANDATORY for releases)

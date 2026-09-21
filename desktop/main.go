@@ -37,7 +37,7 @@ const (
 	maxRestarts = 4
 
 	appName      = "Socks Client Desktop"
-	appVersion   = "1.4.0"
+	appVersion   = "1.4.0.1"
 	lockFileName = "socks_client_desktop.lock"
 )
 
@@ -296,7 +296,7 @@ func (a *App) runUI() {
 					OnClicked: func() { a.startPing() }},
 				RadioButton{AssignTo: &pingOffRB, Text: "Off", Font: Font{Family: "Segoe UI", PointSize: 9},
 					OnClicked: func() { a.startPing() }},
-				Label{Text: "kirim 204 ke internet lewat tunnel tiap 30 detik (\u00b1 1-2 MB/hari)", Font: Font{Family: "Segoe UI", PointSize: 8}},
+				Label{Text: "204 lewat tunnel tiap 30 detik - keep-alive + cek internet murah (\u00b1 1-2 MB/hari)", Font: Font{Family: "Segoe UI", PointSize: 8}},
 			}},
 			Composite{Layout: VBox{Margins: Margins{Left: 15, Top: 6, Right: 15, Bottom: 5}, Spacing: 6}, Children: []Widget{
 				PushButton{AssignTo: &connectBtn, Text: "Connect Socks VPN", Font: Font{Family: "Segoe UI", PointSize: 10, Bold: true},
@@ -527,7 +527,7 @@ func (a *App) startPing() {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	a.pingCancel = cancel
-	go watchPing(ctx, newPingClient(), pingTargets, defaultPingInterval, func(r PingResult) {
+	go watchPing(ctx, newPingClient(), pingTargets, defaultPingInterval, pingRetryInterval, func(r PingResult) {
 		a.lastPing = r
 		a.refreshStatus()
 	})

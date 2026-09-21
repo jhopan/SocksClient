@@ -78,7 +78,7 @@ func TestWatchPingStopsOnCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
-		watchPing(ctx, newPingClient(), []string{srv.URL}, 10*time.Millisecond, func(PingResult) {
+		watchPing(ctx, newPingClient(), []string{srv.URL}, 10*time.Millisecond, 10*time.Millisecond, func(PingResult) {
 			atomic.AddInt32(&calls, 1)
 		})
 		close(done)
@@ -93,5 +93,27 @@ func TestWatchPingStopsOnCancel(t *testing.T) {
 	}
 	if atomic.LoadInt32(&calls) < 2 {
 		t.Fatalf("hanya %d hasil ping", calls)
+	}
+}
+
+// Pengecek internet murah: setelah gagal, percobaan berikutnya harus datang lebih
+// cepat (retryInterval) daripada interval normal.
+func TestWatchPingRetriesSoonerAfterFailure(t *testing.T) {
+	bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer bad.Close()
+
+	var calls int32
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go watchPing(ctx, newPingClient(), []string{bad.URL},
+		time.Hour,           // interval sehat: sengaja tidak mungkin tiba
+		20*time.Millisecond, // retry setelah gagal
+		func(PingResult) { atomic.AddInt32(&calls, 1) })
+
+	time.Sleep(150 * time.Millisecond)
+	if got := atomic.LoadInt32(&calls); got < 3 {
+		t.Fatalf("hanya %d percobaan - retry cepat tidak jalan", got)
 	}
 }

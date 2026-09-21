@@ -2,13 +2,13 @@
 
 # Socks Client
 
-**v1.4.0** — SOCKS5 tunnel client for Android and Windows Desktop
+**v1.4.0.1** — SOCKS5 tunnel client for Android and Windows Desktop
 
 Connect a device to your SOCKS5 hotspot server and route **all** traffic through
 it: TCP, UDP and DNS. One mode, tuned for networks where other clients break.
 
-[![Download APK](https://img.shields.io/badge/Android-APK%20v1.4.0-3ddc84?style=for-the-badge&logo=android&logoColor=white)](../../releases/latest)
-[![Download Desktop](https://img.shields.io/badge/Windows-Installer%20v1.4.0-0078d4?style=for-the-badge&logo=windows&logoColor=white)](../../releases/latest)
+[![Download APK](https://img.shields.io/badge/Android-APK%20v1.4.0.1-3ddc84?style=for-the-badge&logo=android&logoColor=white)](../../releases/latest)
+[![Download Desktop](https://img.shields.io/badge/Windows-Installer%20v1.4.0.1-0078d4?style=for-the-badge&logo=windows&logoColor=white)](../../releases/latest)
 [![Release](https://img.shields.io/github/v/release/jhopan/SocksClient?style=for-the-badge&color=blue)](../../releases)
 [![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)](LICENSE)
 
@@ -67,9 +67,16 @@ button sends `GET /generate_204` every 30 seconds and shows the result next to t
 status (`ping 204 38ms`, or the error). Google's endpoint is tried first, then
 Cloudflare's.
 
-It is a diagnostic, not a keep-alive: the tunnel never depends on it and switching
-it off removes all extra traffic. Cost is small but real - no body, keep-alive
-connections, one request per 30 s - roughly 1-2 MB per day if left on.
+It is a diagnostic with a side benefit: the request keeps the SOCKS connection
+warm, so a NAT or hotspot that drops idle connections does not silently kill the
+path between pings. The tunnel itself never depends on it, and switching it off
+removes all extra traffic.
+
+It is built to be cheap: HTTP (never HTTPS, so no TLS), `204` with no body, minimal
+headers, and a kept-alive connection so the next request is about two small
+packets. One request every 30 s when healthy - roughly 1-2 MB per day if left on.
+When a probe fails the next one comes after 10 s instead of 30 s, so a recovered
+network shows up in the status within seconds.
 
 How the probe travels matters. On Windows the app's own traffic enters the TUN, so
 the request goes through the SOCKS server by itself. On Android the app is
@@ -247,8 +254,9 @@ GitHub secrets used by the APK workflow: `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`,
 | Rebuild only (core bump, fix without new features) | `1.3.0.1`, `1.3.0.2`, ... | fourth segment increments |
 | Core only | unchanged | `core` |
 
-`versionCode` on Android is `major*10000 + minor*100 + patch*10 + build`, so
-`1.3.0.1` becomes `130001` - always increasing, as the platform requires.
+`versionCode` on Android is `major*100000 + minor*10000 + patch*100 + build`, so
+`1.4.0` is `140000` and `1.4.0.1` is `140001` - always increasing, as the platform
+requires.
 
 Pushing a tag runs the matching workflow; every release carries `SHA256SUMS.txt`.
 

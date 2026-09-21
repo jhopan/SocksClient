@@ -80,6 +80,9 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
     // benar-benar menguji jalur app -> sing-box -> SOCKS -> internet.
     private static final int PING_PORT = 2081;
     private static final long PING_INTERVAL_MS = 30000;
+    // Setelah gagal, cek lagi lebih cepat: inilah yang membuatnya berguna sebagai
+    // pengecek internet - begitu jaringan pulih, status ikut pulih dalam detik.
+    private static final long PING_RETRY_MS = 10000;
     private static final String PING_PREFS_KEY = "ping_enabled";
     private static final String PING_RESULT_KEY = "ping_result";
     private static final String[] PING_TARGETS = {
@@ -742,8 +745,11 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
     }
 
     // Loop tipis: cek pref tiap 2 detik (supaya tombol On langsung bekerja) tapi
-    // hanya mengirim ping tiap PING_INTERVAL_MS. Saat Off, hasil lama dihapus
-    // supaya UI tidak menampilkan angka basi.
+    // hanya mengirim ping tiap PING_INTERVAL_MS (10 detik kalau sedang gagal).
+    // Gunanya dua: (1) keep-alive - koneksi ke server SOCKS tidak pernah benar
+    // benar idle sehingga NAT/hotspot tidak memutus jalur tunnel, (2) pengecek
+    // internet murah: HTTP 204 tanpa body, header minimal, koneksi dipakai ulang.
+    // Saat Off, hasil lama dihapus supaya UI tidak menampilkan angka basi.
     private void pingLoop() {
         long next = 0;
         while (pingRunning) {
@@ -755,7 +761,8 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
             } else if (System.currentTimeMillis() >= next) {
                 String result = pingOnce();
                 if (pingRunning) sp.edit().putString(PING_RESULT_KEY, result).apply();
-                next = System.currentTimeMillis() + PING_INTERVAL_MS;
+                boolean ok = result != null && result.startsWith("204");
+                next = System.currentTimeMillis() + (ok ? PING_INTERVAL_MS : PING_RETRY_MS);
             }
             try {
                 Thread.sleep(2000);
@@ -778,20 +785,35 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
                 Proxy proxy = new Proxy(Proxy.Type.HTTP, new InetSocketAddress("127.0.0.1", PING_PORT));
                 conn = (HttpURLConnection) new URL(target).openConnection(proxy);
                 conn.setRequestMethod("GET");
-                conn.setConnectTimeout(6000);
-                conn.setReadTimeout(6000);
+                conn.setConnectTimeout(5000);
+                conn.setReadTimeout(5000);
                 conn.setUseCaches(false);
+                // Header seminimal mungkin: tanpa User-Agent, tanpa gzip.
+                conn.setRequestProperty("User-Agent", "");
+                conn.setRequestProperty("Accept-Encoding", "identity");
+                conn.setRequestProperty("Connection", "keep-alive");
                 int code = conn.getResponseCode();
                 long ms = System.currentTimeMillis() - start;
-                // Body 204 memang kosong; tutup saja supaya koneksi bisa keep-alive.
+                // Body 204 memang kosong; baca sampai habis lalu tutup supaya
+                // koneksinya bisa dipakai ulang (keep-alive ke server SOCKS).
                 InputStream in = code >= 400 ? conn.getErrorStream() : conn.getInputStream();
-                if (in != null) in.close();
-                if (code == 204) return "204 " + ms + "ms";
+                if (in != null) {
+                    byte[] skip = new byte[256];
+                    while (in.read(skip) > 0) {
+                        // buang isi
+                    }
+                    in.close();
+                }
+                if (code == 204) {
+                    // Sengaja TIDAK memanggil disconnect(): itu akan menutup koneksi
+                    // yang sudah dibangun dan menghapus manfaat keep-alive.
+                    return "204 " + ms + "ms";
+                }
                 lastErr = "HTTP " + code;
             } catch (Throwable t) {
                 lastErr = safeMessage(t);
             } finally {
-                if (conn != null) conn.disconnect();
+                if (conn != null && lastErr.startsWith("HTTP")) conn.disconnect();
             }
         }
         return "gagal (" + lastErr + ")";
