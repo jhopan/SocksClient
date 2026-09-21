@@ -22,10 +22,6 @@ import (
 	"socks-client-desktop/internal/boxcfg"
 )
 
-func openURL(url string) {
-	exec.Command("rundll32.exe", "url.dll,FileProtocolHandler", url).Start()
-}
-
 // The core is deliberately NOT embedded: it is built by the "Build Core"
 // workflow and fetched with desktop/scripts/fetch-core.sh, so the repo and the
 // binary stay small.
@@ -74,7 +70,8 @@ type Settings struct {
 }
 
 // runtimeDir keeps the writable bits (settings, config, sing-box.exe, log) out
-// of Program Files so mode "proxy" can run without Administrator rights.
+// of Program Files: the install directory belongs to the installer, and a config
+// written next to the exe would be lost on upgrade.
 func runtimeDir() string {
 	base := os.Getenv("LOCALAPPDATA")
 	if base == "" {
@@ -483,8 +480,8 @@ func (a *App) startCore(host string, port int, user, pass string) string {
 			if !a.connected {
 				return
 			}
-			// Died right after start while in TUN mode: wintun missing, driver
-			// blocked, route conflict. Offer the proxy mode instead of a dead end.
+			// Died right after start: wintun missing, driver blocked by AV,
+			// route conflict. handleTunFailure names the cause and the cures.
 			if time.Since(started) < 5*time.Second {
 				a.handleTunFailure(logPath)
 				return
@@ -562,7 +559,7 @@ func (a *App) relaunchElevated() {
 	if err := relaunchAsAdmin(); err != nil {
 		walk.MsgBox(a.mw, "Gagal",
 			"Tidak bisa menjalankan ulang sebagai Administrator:\n"+err.Error()+
-				"\n\nPakai mode Proxy (tanpa admin) sebagai gantinya.",
+				"\n\nJalankan aplikasi manual: klik kanan > Run as administrator.",
 			walk.MsgBoxIconError)
 		return
 	}
@@ -600,12 +597,8 @@ func (a *App) showDiagnostics() {
 	if core, err := findSingBox(a); err != nil {
 		fmt.Fprintf(&b, "Core: TIDAK DITEMUKAN (%v)\n", err)
 	} else {
-		fmt.Fprintf(&b, "Core: %s\n", core)
-		cmd := exec.Command(core, "version")
-		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-		if out, err := cmd.Output(); err == nil {
-			fmt.Fprintf(&b, "  %s\n", strings.SplitN(strings.TrimSpace(string(out)), "\n", 2)[0])
-		}
+		fmt.Fprintf(&b, "Core: %s\n", coreVersion(a))
+		fmt.Fprintf(&b, "  path: %s\n", core)
 	}
 
 	logTail := tailFile(filepath.Join(a.runDir, "sing-box.log"), 600)
@@ -615,6 +608,22 @@ func (a *App) showDiagnostics() {
 
 	b.WriteString("\nSaran:\n" + diagnoseAdvice(admin, logTail))
 	walk.MsgBox(a.mw, "Diagnosa", b.String(), walk.MsgBoxIconInformation)
+}
+
+// coreVersion reports what the shipped core actually is, so dialogs never show
+// a version string that drifts from the binary.
+func coreVersion(a *App) string {
+	core, err := findSingBox(a)
+	if err != nil {
+		return "tidak ditemukan"
+	}
+	cmd := exec.Command(core, "version")
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	out, err := cmd.Output()
+	if err != nil {
+		return "tidak terbaca"
+	}
+	return strings.SplitN(strings.TrimSpace(string(out)), "\n", 2)[0]
 }
 
 func diagnoseAdvice(admin bool, logTail string) string {
@@ -639,7 +648,7 @@ func (a *App) showDeveloperInfo() {
 	info := "Socks Client v" + appVersion + "\n\n" +
 		"Developer: JhopanStore\n" +
 		"Platform: Windows Desktop\n" +
-		"Core: sing-box v1.12.2\n\n" +
+		"Core: " + coreVersion(a) + "\n\n" +
 		"Hubungi developer atau dukung pengembangan aplikasi:\n\n" +
 		"Telegram: @jhopan_05\n" +
 		"Website: jhopanstore.my.id\n" +

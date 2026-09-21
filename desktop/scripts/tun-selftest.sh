@@ -34,36 +34,14 @@ cat > "$WORK/upstream.json" <<EOF
 }
 EOF
 
-cat > "$WORK/tun.json" <<EOF
-{
-  "log": {"level": "info"},
-  "dns": {
-    "servers": [
-      {"tag": "remote", "type": "tcp", "server": "8.8.8.8", "detour": "socks-out"},
-      {"tag": "remote-udp", "type": "udp", "server": "8.8.8.8", "detour": "socks-out"},
-      {"tag": "local", "type": "local"}
-    ],
-    "final": "remote",
-    "strategy": "ipv4_only"
-  },
-  "inbounds": [{"type": "tun", "interface_name": "sb-tun-selftest", "address": ["172.19.0.1/30"],
-                "mtu": 9000, "auto_route": true, "strict_route": false, "stack": "system"}],
-  "outbounds": [
-    {"type": "socks", "tag": "socks-out", "server": "127.0.0.1", "server_port": $SOCKS_PORT, "version": "5"},
-    {"type": "direct", "tag": "direct"}
-  ],
-  "route": {
-    "auto_detect_interface": true,
-    "default_domain_resolver": {"server": "local"},
-    "rules": [
-      {"action": "sniff"},
-      {"protocol": "dns", "action": "hijack-dns"},
-      {"ip_cidr": ["127.0.0.1/32"], "outbound": "direct"}
-    ],
-    "final": "socks-out"
-  }
+# The TUN config comes from the same builder the app uses (boxcfg via
+# cmd/dumpconfig), so this test can never validate a config the app no longer
+# emits. Stack gvisor + MTU 1400 come straight from boxcfg.
+(cd "$ROOT" && go run ./cmd/dumpconfig -out "$WORK" -variants=false \
+  -host 127.0.0.1 -port "$SOCKS_PORT" -iface sb-tun-selftest) || {
+  echo "could not render the TUN config (needs Go in PATH)" >&2
+  exit 1
 }
-EOF
 
 cleanup() {
   [ -n "${TUN_PID:-}" ] && kill "$TUN_PID" 2>/dev/null

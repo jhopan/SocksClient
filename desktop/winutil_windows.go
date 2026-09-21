@@ -23,14 +23,13 @@ func relaunchAsAdmin() error {
 	}
 	verb, _ := syscall.UTF16PtrFromString("runas")
 	file, _ := syscall.UTF16PtrFromString(exe)
-	params, _ := syscall.UTF16PtrFromString("--elevated")
 	dir, _ := syscall.UTF16PtrFromString(filepath.Dir(exe))
 
 	ret, _, _ := syscall.NewLazyDLL("shell32.dll").NewProc("ShellExecuteW").Call(
 		0,
 		uintptr(unsafe.Pointer(verb)),
 		uintptr(unsafe.Pointer(file)),
-		uintptr(unsafe.Pointer(params)),
+		0, // no arguments: the app reads none
 		uintptr(unsafe.Pointer(dir)),
 		1, // SW_SHOWNORMAL
 	)

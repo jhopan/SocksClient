@@ -7,7 +7,7 @@
 #
 # Usage:
 #   desktop/scripts/fetch-core.sh                 # windows-amd64 (default)
-#   ASSET=sing-box-v1.14.1-windows-386.zip desktop/scripts/fetch-core.sh
+#   ASSET=sing-box-v<version>-windows-386.zip desktop/scripts/fetch-core.sh
 #   GH_REPO=jhopan/SocksClient TAG=core desktop/scripts/fetch-core.sh
 set -euo pipefail
 
@@ -22,7 +22,12 @@ if [ -z "${ASSET:-}" ]; then
       --jq "[.assets[].name | select(endswith(\"$SUFFIX\"))] | first // empty" 2>/dev/null || true)"
   fi
 fi
-ASSET="${ASSET:-sing-box-v1.14.1-windows-amd64.zip}"
+if [ -z "${ASSET:-}" ]; then
+  echo "no asset matching SUFFIX=$SUFFIX in release $TAG of $GH_REPO." >&2
+  echo "Install the gh CLI, or pass the file name explicitly:" >&2
+  echo "  ASSET=sing-box-v<version>-windows-amd64.zip $0" >&2
+  exit 1
+fi
 
 # curl/unzip are native binaries on Windows: hand them native paths, not
 # /c/... MSYS paths (path conversion is off in this shell).
