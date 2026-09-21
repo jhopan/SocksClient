@@ -188,17 +188,31 @@ jobs:
       # Kebijakan rilis: hanya tiga rilis yang dipertahankan - core, APK terbaru,
       # installer terbaru. Rilis lama dihapus di sini supaya halaman Releases tetap
       # bersih tanpa perlu aksi manual. Tag git-nya TIDAK dihapus.
+      # Kebijakan rilis: hanya tiga rilis yang dipertahankan - core, APK terbaru,
+      # installer terbaru. Rilis lama dihapus di sini supaya halaman Releases tetap
+      # bersih tanpa perlu aksi manual. Tag git-nya TIDAK dihapus.
+      # Catatan: `|| true` pada grep penting - kalau tidak ada rilis lama, grep
+      # keluar 1 dan `-o pipefail` menggagalkan step ini.
       - name: Delete superseded releases
         if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release list --limit 100 --json tagName --jq '.[].tagName' \
-            | grep -E '^desktop-v' | grep -v "^desktop-v${{ env.VERSION }}$" \
-            | while read -r tag; do
-                echo "menghapus rilis lama: $tag"
-                gh release delete "$tag" --yes || true
-              done
+          old=$(gh release list --limit 100 --json tagName --jq '.[].tagName' \
+                  | grep -E '^desktop-v' | grep -v "^desktop-v${{ env.VERSION }}$" || true)
+          for tag in $old; do
+            echo "menghapus rilis lama: $tag"
+            gh release delete "$tag" --yes || true
+          done
+
+      # Re-run harus idempotent: kalau rilis untuk tag ini sudah ada (mis. job
+      # dijalankan ulang), hapus dulu supaya upload aset tidak bentrok.
+      - name: Reset current release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete "${{ github.ref_name }}" --yes 2>/dev/null || true
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
