@@ -1,11 +1,11 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SYSTEM_EXEMPTED" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <uses-permission android:name="android.permission.BIND_VPN_SERVICE" />
 
     <application
         android:allowBackup="false"
@@ -30,11 +30,21 @@
             android:exported="false">
         </activity>
 
+        <!--
+          foregroundServiceType systemExempted: salah satu kriterianya adalah
+          "VPN apps (configured using Settings > Network & Internet > VPN)", dan
+          tabel tipe itu menyebut runtime prerequisite "None" - tidak seperti
+          dataSync yang dibatasi ~6 jam/hari di Android 15 sehingga tunnel bisa
+          dimatikan sistem. Lint menuntut juga salah satu SCHEDULE_EXACT_ALARM /
+          USE_EXACT_ALARM karena dia mencocokkan kriteria alarm; kita tidak
+          memakai alarm, jadi cek itu di-ignore di elemen ini saja.
+        -->
         <service
             android:name=".SocksVpnService"
             android:exported="false"
             android:foregroundServiceType="systemExempted"
-            android:permission="android.permission.BIND_VPN_SERVICE">
+            android:permission="android.permission.BIND_VPN_SERVICE"
+            tools:ignore="ForegroundServicePermission">
             <intent-filter>
                 <action android:name="android.net.VpnService" />
             </intent-filter>

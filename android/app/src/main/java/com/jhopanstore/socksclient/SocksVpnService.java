@@ -110,7 +110,12 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
             final String user = intent.getStringExtra(EXTRA_USER);
             final String pass = intent.getStringExtra(EXTRA_PASS);
             setStatus(false, "Connecting...");
+                try {
             startForeground(NOTIF_ID, buildNotification("Connecting..."));
+        } catch (Throwable e) {
+            // Jangan matikan tunnel hanya karena notifikasi ditolak sistem.
+            logE("startForeground ditolak, lanjut tanpa foreground", e);
+        }
             worker.execute(() -> connectInternal(host, port, user, pass));
         }
         return START_STICKY;
@@ -236,7 +241,7 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
             String config = buildSingBoxConfig(host.trim(), port, user, pass, null);
             logI("starting sing-box, config-length=" + config.length() + ", auto_detect_interface");
             if (BuildConfig.DEBUG) {
-                logI("config: " + config);
+                logI("config: " + redactSecrets(config));
             }
             commandServer.startOrReloadService(config, null);
 
@@ -649,12 +654,22 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
     }
 
     private Notification buildNotification(String content) {
-        createChannel();
         Intent openIntent = new Intent(this, MainActivity.class);
         PendingIntent contentIntent = PendingIntent.getActivity(
                 this, 0, openIntent, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
 
-        return new Notification.Builder(this, CHANNEL_ID)
+        Notification.Builder builder;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            createChannel();
+            builder = new Notification.Builder(this, CHANNEL_ID);
+        } else {
+            // API 24-25 tidak mengenal channel; konstruktor dua argumen hanya ada
+            // sejak API 26 dan memanggilnya di sini akan crash.
+            builder = new Notification.Builder(this);
+            builder.setPriority(Notification.PRIORITY_LOW);
+        }
+
+        return builder
                 .setSmallIcon(R.drawable.app_icon_foreground)
                 .setContentTitle("Socks Client")
                 .setContentText(content)
@@ -675,6 +690,11 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
         if (e == null) return "unknown";
         String msg = e.getMessage();
         return (msg == null || msg.trim().isEmpty()) ? e.getClass().getSimpleName() : msg;
+    }
+
+    // logcat tidak boleh memuat kredensial SOCKS dari config yang dicetak.
+    private static String redactSecrets(String config) {
+        return config.replaceAll("(\"(?:password|username)\"\\s*:\\s*\")[^\"]*(\")", "$1***$2");
     }
 
     private void logI(String m) {

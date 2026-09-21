@@ -508,7 +508,9 @@ func (a *App) startCore(host string, port int, user, pass string) string {
 
 	configPath := filepath.Join(a.runDir, "config.json")
 	data, _ := json.MarshalIndent(config, "", "  ")
-	if err := os.WriteFile(configPath, data, 0644); err != nil {
+	// 0600: file ini memuat kredensial SOCKS (DPAPI melindungi settings.json,
+	// tapi core tetap butuh password dalam bentuk asli saat dijalankan).
+	if err := os.WriteFile(configPath, data, 0600); err != nil {
 		return "Write config failed: " + err.Error()
 	}
 
@@ -708,6 +710,9 @@ func (a *App) killProcess() {
 	taskKill.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	taskKill.Run()
 	a.connected = false
+
+	// Core sudah mati: config.json tidak dipakai lagi dan isinya kredensial.
+	os.Remove(filepath.Join(a.runDir, "config.json"))
 }
 
 // relaunchElevated restarts the app with a UAC prompt for mode TUN. The lock
