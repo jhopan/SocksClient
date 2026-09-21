@@ -2,16 +2,13 @@
 
 # Socks Client
 
-**v1.2.0**
+**v1.3.0** — SOCKS5 tunnel client for Android and Windows Desktop
 
-SOCKS5 client for connecting a device to a SOCKS5 hotspot server.
-One connection mode: **TUN** (full tunnel, needs Administrator).
+Connect a device to your SOCKS5 hotspot server and route **all** traffic through
+it: TCP, UDP and DNS. One mode, tuned for networks where other clients break.
 
-Available for **Android** and **Windows Desktop**.
-
-[![Download APK](https://img.shields.io/badge/Download-APK%20v1.2.0-green?style=for-the-badge&logo=android&logoColor=white)](../../releases/latest)
-[![Download Desktop](https://img.shields.io/badge/Download-Installer%20v1.2.0-blue?style=for-the-badge&logo=windows&logoColor=white)](../../releases/latest)
-
+[![Download APK](https://img.shields.io/badge/Android-APK%20v1.3.0-3ddc84?style=for-the-badge&logo=android&logoColor=white)](../../releases/latest)
+[![Download Desktop](https://img.shields.io/badge/Windows-Installer%20v1.3.0-0078d4?style=for-the-badge&logo=windows&logoColor=white)](../../releases/latest)
 [![Release](https://img.shields.io/github/v/release/jhopan/SocksClient?style=for-the-badge&color=blue)](../../releases)
 [![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)](LICENSE)
 
@@ -19,200 +16,232 @@ Available for **Android** and **Windows Desktop**.
 
 ---
 
-## Mode
+## Why this client
 
-Desktop has exactly one mode: **TUN**. sing-box creates a virtual interface and
-routes every IP packet into it — TCP, UDP and DNS alike (wintun is embedded in
-the core, nothing to install).
+Most SOCKS clients assume a clean network and a cooperating OS. This one assumes
+the opposite: mobile hotspots with small MTUs, laptops whose NIC driver fights the
+TUN adapter, and networks that quietly answer DNS for you.
 
-The app declares `requireAdministrator`, so Windows shows the UAC prompt the
-moment you launch it — TUN can never fail later for lack of rights.
+| Problem it solves | How |
+|---|---|
+| "TUN connects but nothing loads" on some laptops | TUN stack pinned to **gvisor** (userspace L3-L4), so the tunnel does not depend on the machine's NIC driver or filter stack |
+| Transfers stall while browsing works | MTU pinned to **1400** - hotspot paths are smaller than 1500, and a bigger MTU means PMTU blackholes |
+| DNS leaking to the hotspot/ISP resolver | Every query is captured in the tunnel (`hijack-dns`, plus WFP-level DNS blocking on Windows) and answered through SOCKS |
+| IPv6 sneaking out | Android routes `::/0` into the tunnel and rejects it; Windows has no IPv6 route and sing-tun blocks v6 at the firewall |
+| Apps bypassing the tunnel | Windows runs `strict_route`; the local network stays reachable through explicit route exclusions |
+| Tunnel stays "Connected" after switching networks | A watchdog notices the interface change and reconnects by itself |
+| Not sure it is working | `Diagnosa` dialog + `desktop/scripts/tun-selftest.sh` prove it end to end, without needing the phone |
 
-Want a plain HTTP/SOCKS proxy instead? Point the client straight at your SOCKS
-server — the app does not set a system proxy, does not listen on a local port,
-and does not touch WinINet, environment variables or WinHTTP.
+## Quick start
 
-### TUN defaults (and when to change them)
+**Android**
 
-| Setting | Value | Why | Change when |
-|---|---|---|---|
-| TUN stack | `gvisor` (pinned) | translates L3->L4 entirely in userspace: not affected by flaky NIC drivers / WFP filters, which is the usual "TUN starts but nothing passes" cause. `mixed`/`system` stay available in `boxcfg` for tooling, but the app no longer exposes them | - |
-| MTU | `1400` (pinned) | hotspot paths often carry a smaller MTU; oversized packets stall or fragment (PMTU blackhole). 1400 leaves headroom for SOCKS overhead | change `DefaultTunMTU` in `boxcfg` and rebuild |
-| DNS | `1.1.1.1` via SOCKS, `8.8.8.8` as the backup entry, strategy `ipv4_only` | DNS can only travel the tunnel; v6 queries have nowhere sane to go | promote `8.8.8.8` by editing `final` if the primary is blocked on your network |
+1. Download the APK for your device (`arm64-v8a` for anything modern) from the
+   [latest release](../../releases/latest).
+2. Install, open, type the server **IP** and port, tap **Connect**, accept the VPN
+   permission prompt.
 
-Apps that keep their own network stack (Steam, most games, torrent clients) ignore all
-own network stack still go direct by design.
-use TUN when UDP is needed.
+**Windows**
 
-### TUN correctness
+1. Download `SocksClientDesktop_Setup_<version>.exe` from the
+   [latest release](../../releases/latest).
+2. Install. The setup copies the app plus the sing-box core; Windows shows a UAC
+   prompt when the app starts (TUN needs Administrator).
+3. Fill in the server **IP** and port, press **Connect Socks VPN**.
 
-Three things that used to break TUN on real laptops and are now covered by tests:
+The server address must be an **IP literal** on both platforms. A hostname would
+have to be resolved *before* the tunnel exists - outside the tunnel on Android
+(the app is excluded from its own VPN) and inside a feedback loop on Windows - so
+the clients refuse it instead of leaking the name.
 
-1. **Explicit `direct` outbound.** The route rule that keeps the tunnel's own packets out of
-   the tunnel (anti-loop) and the bootstrap DNS server both reference the tag `direct`.
-   sing-box 1.14 does not create it implicitly: without it the service dies at startup
-   with `outbound detour not found: direct`, which looks exactly like "TUN connected but
-   dead".
-2. **DNS stays in the tunnel.** Every DNS query is hijacked (`hijack-dns` route action) and
-   answered by a resolver reached over the SOCKS connection, so a laptop whose DHCP hands
-   out a LAN resolver cannot leak queries outside the tunnel.
-3. **Bootstrap only.** The system resolver is used *only* to resolve the SOCKS server's own
-   hostname (`default_domain_resolver`). A `direct`-detoured DNS server is rejected by
-   sing-box inside `auto_route` (it would loop back into the tunnel).
-
-Desktop validation on a real machine:
+Verify what you downloaded:
 
 ```bash
-# git-bash as Administrator
-desktop/scripts/tun-selftest.sh            # or: tun-selftest.sh "Ethernet 2"
+sha256sum -c SHA256SUMS.txt
 ```
 
-It starts a local SOCKS5 server, runs the real TUN config against it, proves TCP + DNS
-travel the tunnel and that the adapter/routes/internet are restored afterwards.
+## How it works
 
-The **Diagnosa** button reports: active mode, admin state, core path/version, whether the
-core version and path, admin state, and the tail of `sing-box.log`
-and an advice line derived from it. Turns "TUN does not work" into a reason.
+```
+app -> TUN (gvisor, MTU 1400) -> sing-box -> SOCKS5 -> your server -> internet
+                |
+                +-- DNS queries are hijacked and resolved through the SOCKS tunnel
+                +-- traffic to the SOCKS server itself bypasses the tunnel (anti-loop rule)
+```
 
-TUN state is crash-safe: leftover routes are released on disconnect and the next launch is clean — if the app was killed while connected.
+Both clients build their configuration from the same shape:
 
----
+```jsonc
+{
+  "dns": {
+    "servers": [
+      { "tag": "remote",     "type": "tcp", "server": "1.1.1.1", "detour": "socks-out" },
+      { "tag": "remote-udp", "type": "udp", "server": "1.1.1.1", "detour": "socks-out" },
+      { "tag": "backup",     "type": "tcp", "server": "8.8.8.8", "detour": "socks-out" },
+      { "tag": "local",      "type": "local" }
+    ],
+    "final": "remote",
+    "strategy": "ipv4_only"
+  },
+  "inbounds": [{ "type": "tun", "mtu": 1400, "auto_route": true, "stack": "gvisor" }],
+  "outbounds": [{ "type": "socks", "tag": "socks-out", "server": "<ip>", "server_port": 1080 }],
+  "route": {
+    "rules": [
+      { "action": "sniff", "sniffer": ["dns"] },
+      { "protocol": "dns", "action": "hijack-dns" },
+      { "ip_cidr": ["<ip>/32"], "outbound": "direct" }
+    ],
+    "final": "socks-out"
+  }
+}
+```
+
+sing-box has no automatic failover between DNS servers: `1.1.1.1` answers, and
+`8.8.8.8` is the backup you promote by pointing `final` at it - one line in
+`desktop/internal/boxcfg/boxcfg.go` or `SocksVpnService.java`.
+
+## Usage notes
+
+| | Android | Windows |
+|---|---|---|
+| Mode | always TUN (`VpnService`) | always TUN (needs Administrator, UAC on launch) |
+| DNS | VPN DNS + `hijack-dns`; no public resolver at the OS layer | same, plus WFP blocks any DNS that tries to leave |
+| Local network | routed into the tunnel (phone hotspot case) | kept reachable via route exclusions (10/8, 172.16/12, 192.168/16, 169.254/16) |
+| Network change | default-network callback reloads sing-box | watchdog (`GetBestInterfaceEx`) restarts the core, max 4 times |
+| Credentials at rest | password encrypted with an Android Keystore AES-GCM key | password encrypted with DPAPI (tied to the Windows account) |
+| Notifications | one ongoing notification (foreground service, type `systemExempted`) | tray icon + `Diagnosa` dialog |
+
+Want plain HTTP/SOCKS proxying instead? Point that app straight at your SOCKS
+server. This client deliberately does not set a system proxy.
+
+## QA - how to check it actually works
+
+**Any laptop, no phone needed**
+
+```bash
+# git-bash as Administrator, from the repo
+desktop/scripts/fetch-core.sh          # core into desktop/embed/
+desktop/scripts/tun-selftest.sh        # spins up a local SOCKS5, runs the real TUN config
+```
+
+What the script proves:
+
+```
+adapter sb-tun-selftest   -> up
+https=200   http=200      -> the tunnel carries TCP
+dns: exchanged ...        -> DNS was answered inside the tunnel, not by the LAN resolver
+adapter after stop        -> cleaned up, internet back to normal
+```
+
+**On the phone**
+
+```bash
+adb logcat -s SocksVpnService          # no FATAL/exception while connecting
+```
+
+Then open `https://dnsleaktest.com` -> *Extended test*: every resolver must be the
+one your SOCKS server uses, never the mobile ISP or the hotspot.
+
+**Checklist used for every release**
+
+| # | Check | Where |
+|---|---|---|
+| 1 | `go vet ./...` and `go test -count=1 ./...` green | `desktop/` |
+| 2 | `sing-box check` accepts the generated configs | `desktop/cmd/dumpconfig` output |
+| 3 | TUN carries TCP + DNS on a real machine | `tun-selftest.sh` |
+| 4 | LAN still reachable while the tunnel is up | ping gateway + open the hotspot page |
+| 5 | Teardown leaves no adapter/route behind | `tun-selftest.sh`, `netsh interface show interface` |
+| 6 | APK builds, signature verified, connects, survives a dark screen | `adb`, `apksigner verify` |
+| 7 | No DNS leak | `dnsleaktest.com` extended test |
+
+## Troubleshooting
+
+| Symptom | Likely cause | What to do |
+|---|---|---|
+| TUN does not start / no `sb-tun` adapter | antivirus or EDR blocking the embedded wintun driver, or not elevated | run as Administrator, exclude the install folder and `%LOCALAPPDATA%\SocksClientDesktop`, press **Diagnosa** |
+| Connected, adapter up, nothing loads | the SOCKS server itself is unreachable or not forwarding | check IP/port/auth, confirm the phone server runs, read the log tail in **Diagnosa** |
+| Pages load, large downloads stall | MTU still too big for the path | default is 1400; try 1350 and re-test with `tun-selftest.sh` |
+| First query slow, then normal | DNS warm-up through SOCKS | expected; later queries sit around 15 ms |
+| DNS still looks like the ISP | the app was not connected, or something bypassed the VPN | re-run the leak test with the tunnel up; look for `dns: exchanged` in the log |
+| Tunnel dead after switching Wi-Fi/hotspot | the socket was bound to the old interface | Windows: automatic (watchdog). Android: reloads on the default-network callback; if it persists, Disconnect -> Connect |
+| Lost the signing key | the APK cannot be updated in place | keep the `keystore/` folder and its backup safe; without it users must uninstall first |
+
+Logs and state:
+
+```
+Windows : %LOCALAPPDATA%\SocksClientDesktop\{settings.json,config.json,sing-box.log}
+Android : adb logcat -s SocksVpnService , plus the log file written by libbox
+```
 
 ## Core (minimal sing-box)
 
-The repo ships **no binaries**. The sing-box core is built by GitHub Actions
-(`.github/workflows/build-core.yml`) with **zero optional build tags** — only the
-features a SOCKS5 client uses (socks, http, mixed, tun, direct, block, dns). No
-quic, wireguard, utls, clash-api, tailscale, naive, usbip, openvpn, acme or dhcp.
+The tunnel core is sing-box, built by GitHub Actions and published as the
+[`core` release](../../releases/tag/core) - never committed to git.
 
-Sizes (windows/amd64, `-s -w -trimpath`): **81.9 MB** upstream full build →
-**36.0 MB** no optional tags → **27.6 MB** with the protocol registry trimmed
-(`core/slim-registry.py`) → **8.6 MB** when the UPX variant is published.
-The trim drops vless/vmess/trojan/shadowsocks/shadowtls/snell/ssh/tor/anytls/naive/
-bridge/selector-urltest/clash-api/mdns-fakeip-hosts-resolved — nothing the client uses.
-
-Everything is published to the [**core** release](../../releases/tag/core):
-
-| Asset | Target |
-|-------|--------|
-| `sing-box-<ver>-windows-386.zip` | Windows 32-bit |
-| `sing-box-<ver>-windows-amd64.zip` | Windows 64-bit |
-| `sing-box-<ver>-darwin-amd64.tar.gz` | macOS Intel |
-| `sing-box-<ver>-darwin-arm64.tar.gz` | macOS Apple Silicon |
-| `sing-box-<ver>-linux-amd64.tar.gz` | Linux x86_64, static (Debian/Ubuntu/Alpine/OpenWrt x86) |
-| `sing-box-<ver>-linux-arm64.tar.gz` | Linux arm64 |
-| `sing-box-<ver>-linux-armv7.tar.gz` | Linux armv7 |
-| `sing-box-<ver>-linux-mipsle-softfloat.tar.gz` | OpenWrt / mipsel routers |
-| `libbox.aar` | Android: arm64-v8a, armeabi-v7a, x86, x86_64 |
-
-All binaries are CGO-free and static — drop them on any machine, no runtime needed.
-Rebuild with **Actions → Build Core → Run workflow**: inputs are the sing-box tag,
-`slim` (registry trim, default on) and `upx` (also publish `-upx` variants, default off).
-A `verify` job builds the trimmed core and runs `sing-box check` on the exact configs
-the client runs (`desktop/cmd/dumpconfig`) before anything is published.
-
-Build artifacts (installer, raw exe, APK set, core archives) are attached to every
-workflow run under **Actions** -> run -> *Artifacts*; released builds also land in
-[**Releases**](../../releases).
-
-Fetch into a checkout:
-
-```bash
-desktop/scripts/fetch-core.sh     # -> desktop/embed/sing-box.exe
-android/scripts/fetch-core.sh     # -> android/app/libs/libbox.aar
+```
+Targets  : windows 386/amd64, darwin amd64/arm64, linux amd64/arm64/armv7/mipsle, libbox.aar
+Trimming : core/slim-registry.py drops every protocol a SOCKS client never uses
+           (vless/vmess/trojan/shadowsocks/snell/ssh/tor/anytls/naive, clash-api,
+           mdns/fakeip/hosts/resolved ...) -> ~27 MB instead of ~82 MB
+Gate     : a verify job builds the trimmed core and runs sing-box check on the exact
+           configs the clients emit before anything is published
+UPX      : optional, adds a second set of smaller archives (-upx suffix)
 ```
 
----
+Rebuild it: **Actions -> Build Core -> Run workflow** with a `version` input.
 
-## Windows Desktop
-
-Go + Walk (native Win32, no WebView2) + bundled sing-box v1.12.2.
-
-### Features
-- No mode selector: TUN is the only path
-- Automatic fallback offer when TUN fails right after start
-- System tray, minimize-to-tray, single instance (Windows mutex)
-- Process tree cleanup on exit (no orphan sing-box)
-- Inno Setup installer with silent auto-upgrade
-- Runtime files live in `%LOCALAPPDATA%\SocksClientDesktop`
-
-### Download
-Grab the installer from [**Releases**](../../releases).
-
-### Build from source
+## Build from source
 
 ```bash
-cd desktop
-# prerequisites: Go 1.25+, windres (mingw-w64), Inno Setup 6 (installer only)
-bash scripts/fetch-core.sh   # pulls the core from the "core" release
-go vet ./...
-go test -count=1 ./...
+# Windows desktop - from desktop/
+bash scripts/fetch-core.sh          # core into embed/
+go vet ./... && go test -count=1 ./...
 windres -o rsrc_windows_amd64.syso app.rc
 go build -ldflags="-s -w -H windowsgui" -o socks-client.exe .
+ISCC.exe setup.iss                  # installer -> installer_output/   (Inno Setup 6)
+
+# Android - from android/
+bash scripts/fetch-core.sh          # libbox.aar into app/libs/
+./gradlew :app:assembleRelease      # or assembleDebug
+# on Windows git-bash use:
+# java -classpath gradle/wrapper/gradle-wrapper.jar org.gradle.wrapper.GradleWrapperMain :app:assembleRelease
 ```
 
-The installer is built from `setup.iss` with `ISCC.exe` (Inno Setup 6), output in `desktop/installer_output/`.
-
-> `desktop/embed/sing-box.exe` is downloaded from the `core` release (never committed).
-
----
-
-## Android
-
-APK built on sing-box (libbox), Java only, zero external dependencies.
-
-### Features
-- SOCKS5 VPN via sing-box core (TCP + UDP)
-- Anti DNS leak, anti routing loop (`bind_interface` + bypass rule)
-- Protocol sniffing (HTTP/TLS/QUIC), IPv4 only
-- Traffic counter, splash screen, Info Developer dialog
-
-### Build from source
+Release signing for the APK (optional locally, required in CI):
 
 ```bash
-cd android
-bash scripts/fetch-core.sh  # pulls libbox.aar from the "core" release
-./gradlew :app:assembleRelease
-# output: android/app/build/outputs/apk/release/
+export KEYSTORE_FILE=/path/to/keystore/socksclient-release.jks
+export KEYSTORE_PASSWORD=... KEY_ALIAS=socksclient KEY_PASSWORD=...
+# build, then confirm the certificate is yours and not the debug key:
+$ANDROID_HOME/build-tools/35.0.0/apksigner verify --print-certs app-arm64-v8a-release.apk
 ```
 
-Requirements: JDK 17+, Android SDK 35.
+GitHub secrets used by the APK workflow: `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`,
+`KEY_ALIAS`, `KEY_PASSWORD`. Without them the release build fails on purpose.
 
-### Configuration notes
-- Core is sing-box 1.14 (same `core` release as the desktop client), so the config uses the current field set: DNS servers as `{"type":"tcp","server":"8.8.8.8","detour":"socks-out"}`, no `sniff` in the tun inbound, and `"action"` allowed in route rules
-- DNS strategy `ipv4_only`; the resolver handed to apps points only at the VPN DNS, never a public fallback
-- `{"protocol":"dns","action":"hijack-dns"}` catches every DNS query — including an app that hardcodes a resolver — and answers it through `socks-out`
-- Route rules: server IP/hostname direct (anti loop), everything else to the SOCKS outbound
-- TUN stack `gvisor`, MTU 1400 — identical defaults to the desktop client, chosen for machines/networks where the OS stack misbehaves
-- `android/config.example.json` is the config the builder emits; CI runs `sing-box check` on it
+## Versioning and releases
 
----
+| What changed | Version | Tags |
+|---|---|---|
+| New feature / behaviour change | `1.3.0` -> `1.4.0` | `v<ver>` (APK), `desktop-v<ver>` (installer) |
+| Rebuild only (core bump, fix without new features) | `1.3.0.1`, `1.3.0.2`, ... | fourth segment increments |
+| Core only | unchanged | `core` |
+
+`versionCode` on Android is `major*10000 + minor*100 + patch*10 + build`, so
+`1.3.0.1` becomes `130001` - always increasing, as the platform requires.
+
+Pushing a tag runs the matching workflow; every release carries `SHA256SUMS.txt`.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Agents working in this repo: read [AGENTS.md](AGENTS.md).
-
-Release tags:
-
-| Target | Tag | Workflow |
-|--------|-----|----------|
-| Android APK | `v1.2.0` | `.github/workflows/build-apk-release.yml` |
-| Windows desktop | `desktop-v1.2.0` | `.github/workflows/build-desktop-release.yml` |
-
-CI (`ci-desktop.yml`) runs `go vet` and `go test` on every push to `main` and on pull requests. All workflows live in the repo root `.github/workflows/`.
-
----
+See [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md) for the
+conventions a human or an agent needs: build commands, path quirks, and the
+load-bearing config rules that must not be edited away.
 
 ## Developer
 
-**JhopanStore**
-
-- Telegram: [@jhopan_05](https://t.me/jhopan_05)
-- Website: [jhopanstore.my.id](https://jhopanstore.my.id)
-- Support: [trakteer.id/jhopan](https://trakteer.id/jhopan)
-
----
+**JhopanStore** - [Telegram](https://t.me/jhopan_05) - [Website](https://jhopanstore.my.id) - [Trakteer](https://trakteer.id/jhopan)
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT - see [LICENSE](LICENSE).

@@ -36,8 +36,37 @@ jobs:
       - name: Fetch core (libbox.aar)
         run: bash scripts/fetch-core.sh
 
+      # S1: APK rilis ditandatangani kunci rilis (rahasia repo), bukan kunci debug.
+      # Kalau secret belum ada, gradle jatuh kembali ke kunci debug dan langkah
+      # verifikasi di bawah akan menolak hasilnya - sengaja, supaya tidak pernah
+      # ada rilis yang diam-diam ditandatangani kunci debug.
+      - name: Prepare release keystore
+        run: |
+          if [ -z "${{ secrets.KEYSTORE_BASE64 }}" ]; then
+            echo "::error::KEYSTORE_BASE64 belum diisi - rilis ditolak"
+            exit 1
+          fi
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/release.jks"
+          echo "KEYSTORE_FILE=$RUNNER_TEMP/release.jks" >> $GITHUB_ENV
+          echo "KEYSTORE_PASSWORD=${{ secrets.KEYSTORE_PASSWORD }}" >> $GITHUB_ENV
+          echo "KEY_ALIAS=${{ secrets.KEY_ALIAS }}" >> $GITHUB_ENV
+          echo "KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}" >> $GITHUB_ENV
+
       - name: Build Release APKs
         run: ./gradlew :app:assembleRelease
+
+      - name: Verify APK signature
+        run: |
+          cd app/build/outputs/apk/release
+          APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | tail -1)
+          for apk in *.apk; do
+            echo "--- $apk"
+            "$APKSIGNER" verify --print-certs "$apk" | sed -n '1,3p'
+            if "$APKSIGNER" verify --print-certs "$apk" | grep -qi "Android Debug"; then
+              echo "::error::$apk is signed with the debug key"
+              exit 1
+            fi
+          done
 
       - name: Rename APKs
         run: |
@@ -49,17 +78,27 @@ jobs:
           mv app-universal-release.apk "SocksClient-${VERSION}-universal.apk"
           ls -lh *.apk
 
+      - name: Write SHA256SUMS
+        run: |
+          cd app/build/outputs/apk/release
+          sha256sum *.apk > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
       - name: Upload APKs as artifacts
         uses: actions/upload-artifact@v4
         with:
           name: SocksClient-APKs
-          path: android/app/build/outputs/apk/release/*.apk
+          path: |
+            android/app/build/outputs/apk/release/*.apk
+            android/app/build/outputs/apk/release/SHA256SUMS.txt
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: android/app/build/outputs/apk/release/*.apk
+          files: |
+            android/app/build/outputs/apk/release/*.apk
+            android/app/build/outputs/apk/release/SHA256SUMS.txt
           name: "Socks Client ${{ env.VERSION }}"
           body: |
             ## Socks Client ${{ env.VERSION }}
@@ -70,6 +109,10 @@ jobs:
             | `SocksClient-${{ env.VERSION }}-arm64-v8a.apk` | 64-bit | modern devices |
             | `SocksClient-${{ env.VERSION }}-armeabi-v7a.apk` | 32-bit | older devices |
             | `SocksClient-${{ env.VERSION }}-universal.apk` | all | works everywhere |
+
+            Verify what you downloaded: `sha256sum -c SHA256SUMS.txt`
+
+            Signed with the project release key (not the Android debug key).
 
             Windows desktop installer: see the `desktop-v${{ env.VERSION }}` release.
           draft: false

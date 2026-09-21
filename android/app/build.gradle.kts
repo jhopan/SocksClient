@@ -17,8 +17,11 @@ android {
         applicationId = "com.jhopanstore.socksclient"
         minSdk = 24
         targetSdk = 35
-        versionCode = 3
-        versionName = "1.2.0"
+        // Konvensi: fitur baru -> naikkan versi normal (1.3.0).
+        // Build ulang tanpa fitur baru -> tambah segmen keempat (1.3.0.1, 1.3.0.2, ...).
+        // versionCode selalu naik: major*10000 + minor*100 + patch*10 + build.
+        versionCode = 130000
+        versionName = "1.3.0"
     }
 
     buildFeatures {
@@ -35,6 +38,25 @@ android {
         }
     }
 
+    // S1: APK rilis ditandatangani kunci rilis, bukan kunci debug.
+    // Kunci debug bersifat publik dan APK yang ditandatangani dengannya tidak
+    // bisa di-update setelah pindah ke kunci rilis (harus uninstall dulu).
+    // Keystore diambil dari KEYSTORE_FILE (CI mendekode secret) - kalau tidak
+    // ada, build lokal jatuh kembali ke kunci debug supaya tetap bisa dikompilasi.
+    val releaseKeystore = System.getenv("KEYSTORE_FILE")?.let { file(it) }
+    val hasReleaseKey = releaseKeystore?.exists() == true
+
+    signingConfigs {
+        if (hasReleaseKey) {
+            create("release") {
+                storeFile = releaseKeystore
+                storePassword = System.getenv("KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("KEY_ALIAS")
+                keyPassword = System.getenv("KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         debug {
             isMinifyEnabled = false
@@ -46,7 +68,11 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (hasReleaseKey) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
     }
 

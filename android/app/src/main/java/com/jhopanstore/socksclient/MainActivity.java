@@ -111,7 +111,11 @@ public class MainActivity extends Activity {
         hostInput = textInput("SOCKS Host/IP", prefs.getString("host", ""));
         portInput = numberInput("SOCKS Port", prefs.getInt("port", 1080));
         userInput = textInput("Username (opsional)", prefs.getString("user", ""));
-        passInput = textInput("Password (opsional)", prefs.getString("pass", ""));
+        // S3: password disimpan terenkripsi (Android Keystore). Kunci lama "pass"
+        // masih dibaca sekali untuk migrasi, lalu ikut ditulis ulang terenkripsi.
+        String passPlain = SecurePrefs.decrypt(this, prefs.getString("pass_enc", null));
+        passInput = textInput("Password (opsional)",
+                passPlain != null ? passPlain : prefs.getString("pass", ""));
 
         root.addView(fieldBox("Host / IP", hostInput), marginTop(matchWrap(), 18));
         root.addView(fieldBox("Port", portInput), marginTop(matchWrap(), 10));
@@ -168,7 +172,8 @@ public class MainActivity extends Activity {
                 .putString("host", host)
                 .putInt("port", port)
                 .putString("user", userInput.getText().toString().trim())
-                .putString("pass", passInput.getText().toString())
+                .putString("pass_enc", SecurePrefs.encrypt(MainActivity.this, passInput.getText().toString()))
+                .remove("pass") // S3: jangan tinggalkan bekas plaintext
                 .apply();
 
         // P8: hanya IP literal. Hostname memaksa sing-box melakukan bootstrap DNS

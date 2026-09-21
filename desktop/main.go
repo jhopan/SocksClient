@@ -36,7 +36,7 @@ const (
 	maxRestarts = 4
 
 	appName      = "Socks Client Desktop"
-	appVersion   = "1.2.0"
+	appVersion   = "1.3.0"
 	lockFileName = "socks_client_desktop.lock"
 )
 
@@ -67,14 +67,20 @@ type App struct {
 
 	watchStop chan struct{}
 	restarts  int
+
+	passwordNotice   string
+	migratedPassword bool
 }
 
 type Settings struct {
 	Host string `json:"host"`
 	Port int    `json:"port"`
 	User string `json:"user"`
-	Pass string `json:"pass"`
-	Tray bool   `json:"tray"`
+	// Pass tidak pernah ditulis lagi: saveSettings menulis PassEnc (DPAPI).
+	// Field ini hanya dibaca sekali untuk memigrasi settings.json lama.
+	Pass    string `json:"pass,omitempty"`
+	PassEnc string `json:"pass_enc,omitempty"`
+	Tray    bool   `json:"tray"`
 }
 
 // runtimeDir keeps the writable bits (settings, config, sing-box.exe, log) out
@@ -197,6 +203,20 @@ func (a *App) loadSettings() {
 		break
 	}
 
+	if a.settings.PassEnc != "" {
+		plain, err := unprotectPassword(a.settings.PassEnc)
+		if err != nil {
+			// Blob DPAPI terikat akun/mesin: file dari mesin lain tidak bisa dibuka.
+			a.settings.Pass = ""
+			a.settings.PassEnc = ""
+			a.passwordNotice = err.Error()
+		} else {
+			a.settings.Pass = plain
+		}
+	} else if a.settings.Pass != "" {
+		a.migratedPassword = true // plaintext lama: ditulis ulang terenkripsi di save berikutnya
+	}
+
 	a.normalizeSettings()
 	a.trayEnabled = a.settings.Tray
 }
@@ -208,8 +228,12 @@ func (a *App) normalizeSettings() {
 }
 
 func (a *App) saveSettings() {
-	data, _ := json.MarshalIndent(a.settings, "", "  ")
-	os.WriteFile(filepath.Join(a.runDir, "settings.json"), data, 0644)
+	// S3: password keluar ke disk hanya dalam bentuk blob DPAPI.
+	toWrite := a.settings
+	toWrite.PassEnc = protectPassword(a.settings.Pass)
+	toWrite.Pass = ""
+	data, _ := json.MarshalIndent(toWrite, "", "  ")
+	os.WriteFile(filepath.Join(a.runDir, "settings.json"), data, 0600)
 }
 
 // --- UI -----------------------------------------------
@@ -286,6 +310,17 @@ func (a *App) runUI() {
 	a.connectBtn, a.disconnBtn = connectBtn, disconnBtn
 	a.statusLabel = statusLabel
 	a.trayCB = trayCB
+
+	// S3: tulis ulang settings lama (password plaintext) dalam bentuk terenkripsi,
+	// dan beri tahu kalau blob DPAPI tidak bisa dibuka (file dari akun lain).
+	if a.migratedPassword {
+		a.migratedPassword = false
+		a.saveSettings()
+	}
+	if a.passwordNotice != "" {
+		a.statusLabel.SetText("Status: password perlu diketik ulang (" + a.passwordNotice + ")")
+		a.passwordNotice = ""
+	}
 
 	// Set window icon (taskbar) from ICO
 	if ico, err := walk.NewIconFromFile(trayIconPath); err == nil {

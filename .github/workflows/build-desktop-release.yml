@@ -88,11 +88,19 @@ jobs:
           VERSION=$(grep 'appVersion' main.go | head -1 | sed 's/.*"\(.*\)".*/\1/')
           echo "VERSION=$VERSION" >> $GITHUB_ENV
 
+      - name: Write SHA256SUMS
+        run: |
+          cd desktop/installer_output
+          sha256sum *.exe > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
       - name: Upload installer as artifact
         uses: actions/upload-artifact@v4
         with:
           name: SocksClientDesktop-Setup
-          path: desktop/installer_output/*.exe
+          path: |
+            desktop/installer_output/*.exe
+            desktop/installer_output/SHA256SUMS.txt
 
       - name: Upload app as artifact
         uses: actions/upload-artifact@v4
@@ -104,7 +112,9 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: desktop/installer_output/*.exe
+          files: |
+            desktop/installer_output/*.exe
+            desktop/installer_output/SHA256SUMS.txt
           name: "Socks Client Desktop ${{ env.VERSION }}"
           body: |
             ## Socks Client Desktop ${{ env.VERSION }}
@@ -120,6 +130,8 @@ jobs:
             - No proxy mode: the app never sets a Windows system proxy, never listens on a local port, and never touches WinINet / environment variables / WinHTTP
             - Dialogs and Diagnosa updated for the single mode
             - Runtime files (settings, config, log, sing-box.exe) live in `%LOCALAPPDATA%\SocksClientDesktop`
+
+            Verify what you downloaded: `sha256sum -c SHA256SUMS.txt`
 
             ### Install
             1. Download the installer

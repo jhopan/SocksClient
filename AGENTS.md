@@ -61,8 +61,24 @@ bash scripts/fetch-core.sh        # libbox.aar from the "core" release
 - Host must be an IP literal on **both** clients: a hostname forces a bootstrap lookup outside the tunnel (the app process is excluded from the VPN on Android, and on Windows it loops back into the tunnel).
 - `desktop/watchdog_windows.go` + `watchNetwork()` in `main.go`: every 8s `GetBestInterfaceEx` says which interface would reach the server; when it changes, the core is restarted (max 4 times, then the UI asks for a manual reconnect). No probe traffic, so it works under `strict_route`.
 - Android: `{"action":"sniff","sniffer":["dns"]}` makes hijack-dns cover resolvers other than the VPN DNS address; the sniff action in 1.14 carries no destination override, so it cannot rewrite where a connection goes.
+- Android network change: `SocksVpnService.registerNetworkWatchdog()` reacts to `registerDefaultNetworkCallback`; a change reloads sing-box through `startOrReloadService` (15s debounce, full reconnect as the fallback). Do not remove it - a hotspot handover otherwise leaves a "Connected" tunnel that carries nothing.
+- Stored credentials are encrypted on both clients: Windows uses DPAPI (`desktop/dpapi_windows.go`, `pass_enc` in settings.json, covered by `dpapi_test.go`), Android uses an Android Keystore AES-GCM key via `SecurePrefs` (`pass_enc` pref, legacy `pass` is read once and then removed).
+- Android CI (`ci-android.yml`) runs `assembleDebug` + `lint` on every Android push; the APK workflow additionally gates on the signature.
 - Android battery: heartbeat and traffic poll are 10s each, the notification is only re-posted when the counters change, and `MainActivity` accepts a 45s-old heartbeat as alive (3 missed beats) - do not tighten these back to 2-3s.
 - Any change to TUN config must keep `go test ./...` green; `desktop/scripts/tun-selftest.sh` is the end-to-end proof on a real machine.
+
+## Version policy
+
+- A change that adds a feature or alters behaviour bumps the **normal** version: `1.3.0` -> `1.4.0`.
+- A rebuild that adds no feature (core bump, small fix) increments the **fourth** segment: `1.3.0.1`, `1.3.0.2`, ... and the tag follows (`v1.3.0.1` / `desktop-v1.3.0.1`).
+- Android `versionCode` = `major*10000 + minor*100 + patch*10 + build`, so `1.3.0.1` -> `130001` (always increasing).
+- Version numbers live in three places: `desktop/main.go` (`appVersion`), `desktop/setup.iss` (`MyAppVersion`), `android/app/build.gradle.kts` (`versionName` + `versionCode`).
+
+## APK signing (MANDATORY for releases)
+
+- The release APK must be signed with the project key, never the Android debug key. `android/app/build.gradle.kts` picks the release keystore from `KEYSTORE_FILE`; the APK workflow decodes `KEYSTORE_BASE64` into that file and **fails the release** if `apksigner verify` reports "Android Debug".
+- Secrets: `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`. The keystore and its backup live outside the repo (`documents/project/keystore/`); never commit them.
+- Losing the key means installed users must uninstall before they can take an update.
 
 ## Release & tag convention (MANDATORY)
 

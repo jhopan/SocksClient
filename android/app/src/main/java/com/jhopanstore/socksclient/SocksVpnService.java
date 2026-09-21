@@ -6,6 +6,8 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.net.ConnectivityManager;
+import android.net.Network;
 import android.net.VpnService;
 import android.os.Build;
 import android.os.ParcelFileDescriptor;
@@ -74,6 +76,14 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
     private ParcelFileDescriptor vpnFd;
     private Thread heartbeatThread;
 
+    // S2: last used server + network watchdog state
+    private volatile String serverHost;
+    private volatile int serverPort;
+    private volatile String serverUser;
+    private volatile String serverPass;
+    private ConnectivityManager.NetworkCallback networkCallback;
+    private volatile long lastNetworkRestart;
+
     // ── Traffic counter ──
     private final AtomicLong uploadBytes = new AtomicLong(0);
     private final AtomicLong downloadBytes = new AtomicLong(0);
@@ -122,6 +132,78 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
     }
 
     // ──────────────────────────────────────────────
+    // S2: network watchdog
+    // ──────────────────────────────────────────────
+
+    /** Reload the tunnel when the underlying network changes or disappears. */
+    private void registerNetworkWatchdog() {
+        if (networkCallback != null) return;
+        ConnectivityManager cm = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+        if (cm == null) return;
+        networkCallback = new ConnectivityManager.NetworkCallback() {
+            @Override
+            public void onAvailable(Network network) {
+                onNetworkChanged("tersedia");
+            }
+
+            @Override
+            public void onLost(Network network) {
+                onNetworkChanged("hilang");
+            }
+        };
+        try {
+            cm.registerDefaultNetworkCallback(networkCallback);
+            logI("network watchdog registered");
+        } catch (Exception e) {
+            networkCallback = null;
+            logE("registerDefaultNetworkCallback failed", e);
+        }
+    }
+
+    private void unregisterNetworkWatchdog() {
+        ConnectivityManager cm = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+        if (cm != null && networkCallback != null) {
+            try {
+                cm.unregisterNetworkCallback(networkCallback);
+            } catch (Exception ignored) {
+            }
+        }
+        networkCallback = null;
+    }
+
+    /**
+     * WiFi -> seluler atau hotspot putus-nyambung membuat koneksi SOCKS mati
+     * sementara VPN-nya masih "Connected". Callback ini memuat ulang sing-box
+     * dengan config yang sama (server berupa IP, jadi tidak ada yang perlu
+     * di-resolve ulang). Diberi jeda 15 detik supaya jaringan yang berkedip tidak
+     * memicu restart berulang.
+     */
+    private void onNetworkChanged(String reason) {
+        if (!running || stopping || connecting || commandServer == null) return;
+        long now = System.currentTimeMillis();
+        if (now - lastNetworkRestart < 15000) return;
+        lastNetworkRestart = now;
+        logI("network changed (" + reason + ") - reloading sing-box");
+
+        worker.execute(() -> {
+            try {
+                String config = buildSingBoxConfig(serverHost, serverPort, serverUser, serverPass, null);
+                commandServer.startOrReloadService(config, null);
+                setStatus(true, "Connected");
+                notifyStatus("Connected");
+                logI("reloaded after network change");
+            } catch (Throwable t) {
+                logE("reload after network change failed, reconnecting", t);
+                synchronized (lock) {
+                    running = false;
+                }
+                disconnectCoreOnly();
+                connectInternal(serverHost, serverPort, serverUser, serverPass);
+            }
+        });
+    }
+
+    // ──────────────────────────────────────────────
     // Connect
     // ──────────────────────────────────────────────
 
@@ -158,6 +240,11 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
             }
             commandServer.startOrReloadService(config, null);
 
+            serverHost = host.trim();
+            serverPort = port;
+            serverUser = user;
+            serverPass = pass;
+
             synchronized (lock) {
                 running = true;
                 connecting = false;
@@ -165,6 +252,7 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
 
             setStatus(true, "Connected");
             notifyStatus("Connected");
+            registerNetworkWatchdog();
             startHeartbeat();
             resetTrafficCounters();
             loadTrafficToggle();
@@ -194,6 +282,7 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
         }
 
         logI("disconnectInternal");
+        unregisterNetworkWatchdog();
         stopHeartbeat();
         stopTrafficMonitor();
         disconnectCoreOnly();
