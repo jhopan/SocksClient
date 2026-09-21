@@ -9,6 +9,8 @@ func TestReferencedTagsExist(t *testing.T) {
 	cases := map[string]map[string]interface{}{
 		"tun":          Tun("10.12.132.225", 1080, "user", "pass", TunOptions{}),
 		"tun-gvisor":   Tun("10.12.132.225", 1080, "user", "pass", TunOptions{Stack: StackGVisor}),
+		"tun-mixed":    Tun("10.12.132.225", 1080, "user", "pass", TunOptions{Stack: StackMixed}),
+		"tun-system":   Tun("10.12.132.225", 1080, "user", "pass", TunOptions{Stack: StackSystem}),
 		"tun-hostname": Tun("server.example.com", 1080, "", "", TunOptions{}),
 		"proxy":        Proxy("10.12.132.225", 1080, "user", "pass", ProxyOptions{LocalPort: 2080}),
 	}
@@ -119,4 +121,25 @@ func TestTunHijacksDNS(t *testing.T) {
 		}
 	}
 	t.Fatal("tun config does not hijack DNS")
+}
+
+// Each stack must land in the config, and the default MTU must stay at the
+// hotspot-safe value - the desktop defaults are the answer to "TUN does not
+// work on some laptops", so they are worth pinning down.
+func TestTunStacksAndMTU(t *testing.T) {
+	for _, stack := range []string{StackGVisor, StackMixed, StackSystem} {
+		cfg := Tun("10.12.132.225", 1080, "user", "pass", TunOptions{Stack: stack})
+		inbound := cfg["inbounds"].([]map[string]interface{})[0]
+		if inbound["stack"] != stack {
+			t.Fatalf("stack %q rendered as %v", stack, inbound["stack"])
+		}
+		if inbound["mtu"] != DefaultTunMTU {
+			t.Fatalf("default mtu rendered as %v, want %d", inbound["mtu"], DefaultTunMTU)
+		}
+	}
+	// unknown stack falls back to gvisor, not to the stack that breaks on laptops
+	cfg := Tun("10.12.132.225", 1080, "user", "pass", TunOptions{Stack: "nonsense"})
+	if got := cfg["inbounds"].([]map[string]interface{})[0]["stack"]; got != StackGVisor {
+		t.Fatalf("unknown stack fell back to %v, want %s", got, StackGVisor)
+	}
 }

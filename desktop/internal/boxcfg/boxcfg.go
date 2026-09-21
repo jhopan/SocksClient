@@ -11,26 +11,32 @@ const (
 	ModeProxy = "proxy"
 )
 
-// TUN stacks. "system" uses the OS stack (default, fastest); "gvisor" is the
-// pure-Go stack, the fallback for laptops where the system stack misbehaves.
+// TUN stacks, straight from sing-box: "system" translates L3->L4 with the OS
+// network stack, "gvisor" with gVisor's userspace stack, "mixed" uses system for
+// TCP and gvisor for UDP. gvisor is our default: it does not depend on the
+// machine's NIC driver or filter stack, which is the usual "TUN starts but
+// nothing passes" cause on random laptops.
 const (
 	StackSystem = "system"
 	StackGVisor = "gvisor"
+	StackMixed  = "mixed"
 )
 
 // TunOptions carries what the UI lets the user change.
 type TunOptions struct {
-	Stack         string // StackSystem or StackGVisor
-	MTU           int    // 0 = default (9000)
+	Stack         string // StackGVisor (default) | StackMixed | StackSystem
+	MTU           int    // 0 = default (1400)
 	InterfaceName string // TUN adapter name; "sb-tun" when empty
 	LogLevel      string // sing-box log level; "info" when empty
 }
 
 func (o TunOptions) stack() string {
-	if o.Stack == StackGVisor {
+	switch o.Stack {
+	case StackMixed, StackSystem:
+		return o.Stack
+	default:
 		return StackGVisor
 	}
-	return StackSystem
 }
 
 // DefaultTunMTU is deliberately on the safe side: hotspot networks frequently

@@ -30,7 +30,7 @@ Available for **Android** and **Windows Desktop**.
 
 | Setting | Default | Why | Change when |
 |---|---|---|---|
-| TUN stack | `gvisor` | pure-Go userspace stack, not affected by flaky NIC drivers / WFP filters; the safe default on "some laptops TUN does not work" | back to `system` for lower CPU when TUN already works |
+| TUN stack | `gvisor` | translates L3->L4 entirely in userspace: not affected by flaky NIC drivers / WFP filters, which is the usual "TUN starts but nothing passes" cause | `mixed` (system TCP + gvisor UDP) for lower CPU on a good machine; `system` for the lowest CPU on a fast link |
 | MTU | `1400` | hotspot paths often carry a smaller MTU; oversized packets stall or fragment (PMTU blackhole). 1400 leaves headroom for SOCKS overhead | raise to 9000 on a clean LAN for slightly better bulk throughput |
 | DNS strategy | `ipv4_only` | the SOCKS hotspot path is IPv4; v6 queries would have nowhere sane to go | only if the server gains real IPv6 routing |
 

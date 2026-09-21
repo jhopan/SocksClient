@@ -64,6 +64,7 @@ type App struct {
 	tunRB         *walk.RadioButton
 	proxyRB       *walk.RadioButton
 	stackSystemRB *walk.RadioButton
+	stackMixedRB  *walk.RadioButton
 	stackGvisorRB *walk.RadioButton
 	sysProxyCB    *walk.CheckBox
 	connectBtn    *walk.PushButton
@@ -224,8 +225,10 @@ func (a *App) normalizeSettings() {
 	if a.settings.Mode != modeProxy {
 		a.settings.Mode = modeTun
 	}
-	if a.settings.Stack != boxcfg.StackGVisor {
-		a.settings.Stack = boxcfg.StackSystem
+	switch a.settings.Stack {
+	case boxcfg.StackGVisor, boxcfg.StackMixed, boxcfg.StackSystem:
+	default:
+		a.settings.Stack = boxcfg.StackGVisor
 	}
 	if a.settings.MTU != 0 && (a.settings.MTU < 576 || a.settings.MTU > 9000) {
 		a.settings.MTU = 0
@@ -247,7 +250,7 @@ func (a *App) saveSettings() {
 
 func (a *App) runUI() {
 	var hostEdit, portEdit, userEdit, passEdit, localPortEdit, mtuEdit *walk.LineEdit
-	var tunRB, proxyRB, stackSystemRB, stackGvisorRB *walk.RadioButton
+	var tunRB, proxyRB, stackSystemRB, stackGvisorRB, stackMixedRB *walk.RadioButton
 	var sysProxyCB, trayCB *walk.CheckBox
 	var connectBtn, disconnBtn *walk.PushButton
 	var statusLabel *walk.Label
@@ -299,10 +302,12 @@ func (a *App) runUI() {
 				}},
 				Composite{Layout: HBox{Spacing: 10}, Children: []Widget{
 					Label{Text: "TUN stack:", Font: Font{Family: "Segoe UI", PointSize: 9}},
-					RadioButton{AssignTo: &stackSystemRB, Text: "System", Font: Font{Family: "Segoe UI", PointSize: 9},
-						OnClicked: func() { a.setStack(boxcfg.StackSystem) }},
-					RadioButton{AssignTo: &stackGvisorRB, Text: "gvisor (fallback)", Font: Font{Family: "Segoe UI", PointSize: 9},
+					RadioButton{AssignTo: &stackGvisorRB, Text: "gvisor", Font: Font{Family: "Segoe UI", PointSize: 9},
 						OnClicked: func() { a.setStack(boxcfg.StackGVisor) }},
+					RadioButton{AssignTo: &stackMixedRB, Text: "mixed", Font: Font{Family: "Segoe UI", PointSize: 9},
+						OnClicked: func() { a.setStack(boxcfg.StackMixed) }},
+					RadioButton{AssignTo: &stackSystemRB, Text: "system", Font: Font{Family: "Segoe UI", PointSize: 9},
+						OnClicked: func() { a.setStack(boxcfg.StackSystem) }},
 				}},
 				CheckBox{AssignTo: &sysProxyCB, Text: "Set proxy Windows + env var app (mode Proxy)",
 					Checked: a.settings.SystemProxy, Font: Font{Family: "Segoe UI", PointSize: 9},
@@ -344,7 +349,7 @@ func (a *App) runUI() {
 	a.localPortEdit = localPortEdit
 	a.mtuEdit = mtuEdit
 	a.tunRB, a.proxyRB = tunRB, proxyRB
-	a.stackSystemRB, a.stackGvisorRB = stackSystemRB, stackGvisorRB
+	a.stackSystemRB, a.stackGvisorRB, a.stackMixedRB = stackSystemRB, stackGvisorRB, stackMixedRB
 	a.sysProxyCB = sysProxyCB
 	a.connectBtn, a.disconnBtn = connectBtn, disconnBtn
 	a.statusLabel = statusLabel
@@ -355,10 +360,13 @@ func (a *App) runUI() {
 	} else {
 		tunRB.SetChecked(true)
 	}
-	if a.settings.Stack == boxcfg.StackGVisor {
-		stackGvisorRB.SetChecked(true)
-	} else {
+	switch a.settings.Stack {
+	case boxcfg.StackMixed:
+		stackMixedRB.SetChecked(true)
+	case boxcfg.StackSystem:
 		stackSystemRB.SetChecked(true)
+	default:
+		stackGvisorRB.SetChecked(true)
 	}
 	a.applyModeToUI()
 
@@ -400,10 +408,14 @@ func (a *App) currentMode() string {
 }
 
 func (a *App) currentStack() string {
-	if a.stackGvisorRB != nil && a.stackGvisorRB.Checked() {
+	switch {
+	case a.stackGvisorRB != nil && a.stackGvisorRB.Checked():
 		return boxcfg.StackGVisor
+	case a.stackMixedRB != nil && a.stackMixedRB.Checked():
+		return boxcfg.StackMixed
+	default:
+		return boxcfg.StackSystem
 	}
-	return boxcfg.StackSystem
 }
 
 func (a *App) tunMTU() int {
@@ -414,13 +426,16 @@ func (a *App) tunMTU() int {
 }
 
 func (a *App) setStack(stack string) {
-	if a.stackSystemRB == nil || a.stackGvisorRB == nil {
+	if a.stackSystemRB == nil || a.stackGvisorRB == nil || a.stackMixedRB == nil {
 		return
 	}
-	if stack == boxcfg.StackGVisor {
-		a.stackGvisorRB.SetChecked(true)
-	} else {
+	switch stack {
+	case boxcfg.StackSystem:
 		a.stackSystemRB.SetChecked(true)
+	case boxcfg.StackMixed:
+		a.stackMixedRB.SetChecked(true)
+	default:
+		a.stackGvisorRB.SetChecked(true)
 	}
 	a.settings.Stack = a.currentStack()
 	a.saveSettings()
@@ -444,6 +459,9 @@ func (a *App) applyModeToUI() {
 	}
 	if a.stackGvisorRB != nil {
 		a.stackGvisorRB.SetEnabled(isTun)
+	}
+	if a.stackMixedRB != nil {
+		a.stackMixedRB.SetEnabled(isTun)
 	}
 }
 
