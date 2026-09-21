@@ -5,12 +5,6 @@ package boxcfg
 
 import "strings"
 
-// Mode selects which inbound the core opens.
-const (
-	ModeTun   = "tun"
-	ModeProxy = "proxy"
-)
-
 // TUN stacks, straight from sing-box: "system" translates L3->L4 with the OS
 // network stack, "gvisor" with gVisor's userspace stack, "mixed" uses system for
 // TCP and gvisor for UDP. gvisor is our default: it does not depend on the
@@ -157,38 +151,5 @@ func Tun(host string, port int, user, pass string, opts TunOptions) map[string]i
 			},
 			"final": "socks-out",
 		},
-	}
-}
-
-// ProxyOptions carries the proxy-mode knobs.
-type ProxyOptions struct {
-	LocalPort int    // listen port for the local mixed inbound
-	LogLevel  string // sing-box log level; "info" when empty
-}
-
-func (o ProxyOptions) localPort() int {
-	if o.LocalPort >= 1024 && o.LocalPort <= 65535 {
-		return o.LocalPort
-	}
-	return 2080
-}
-
-func (o ProxyOptions) logLevel() string {
-	if o.LogLevel != "" {
-		return o.LogLevel
-	}
-	return "info"
-}
-
-// Proxy is the non-TUN mode: one local mixed inbound (SOCKS5 + HTTP), no
-// interface, no routes, no admin rights.
-func Proxy(host string, port int, user, pass string, opts ProxyOptions) map[string]interface{} {
-	return map[string]interface{}{
-		"log": map[string]interface{}{"level": opts.logLevel()},
-		"inbounds": []map[string]interface{}{{
-			"type": "mixed", "tag": "mixed-in",
-			"listen": "127.0.0.1", "listen_port": opts.localPort(),
-		}},
-		"outbounds": []map[string]interface{}{socksOutbound(host, port, user, pass)},
 	}
 }

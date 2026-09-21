@@ -4,7 +4,6 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
-	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -35,12 +34,9 @@ func openURL(url string) {
 var embeddedFiles embed.FS
 
 const (
-	appName          = "Socks Client Desktop"
-	appVersion       = "1.2.0"
-	modeTun          = "tun"
-	modeProxy        = "proxy"
-	defaultLocalPort = 2080
-	lockFileName     = "socks_client_desktop.lock"
+	appName      = "Socks Client Desktop"
+	appVersion   = "1.2.0"
+	lockFileName = "socks_client_desktop.lock"
 )
 
 var logoPath string
@@ -55,18 +51,14 @@ type App struct {
 	runDir    string
 	appDir    string
 
-	hostEdit      *walk.LineEdit
-	portEdit      *walk.LineEdit
-	userEdit      *walk.LineEdit
-	passEdit      *walk.LineEdit
-	localPortEdit *walk.LineEdit
-	tunRB         *walk.RadioButton
-	proxyRB       *walk.RadioButton
-	sysProxyCB    *walk.CheckBox
-	connectBtn    *walk.PushButton
-	disconnBtn    *walk.PushButton
-	statusLabel   *walk.Label
-	trayCB        *walk.CheckBox
+	hostEdit    *walk.LineEdit
+	portEdit    *walk.LineEdit
+	userEdit    *walk.LineEdit
+	passEdit    *walk.LineEdit
+	connectBtn  *walk.PushButton
+	disconnBtn  *walk.PushButton
+	statusLabel *walk.Label
+	trayCB      *walk.CheckBox
 
 	trayEnabled   bool
 	trayStarted   bool
@@ -74,17 +66,11 @@ type App struct {
 }
 
 type Settings struct {
-	Host        string         `json:"host"`
-	Port        int            `json:"port"`
-	User        string         `json:"user"`
-	Pass        string         `json:"pass"`
-	Tray        bool           `json:"tray"`
-	Mode        string         `json:"mode"`
-	LocalPort   int            `json:"local_port"`
-	SystemProxy bool           `json:"system_proxy"`
-	ProxyBackup *ProxyBackup   `json:"proxy_backup,omitempty"`
-	EnvBackup   *EnvBackup     `json:"env_backup,omitempty"`
-	WinHTTP     *WinHTTPBackup `json:"winhttp_backup,omitempty"`
+	Host string `json:"host"`
+	Port int    `json:"port"`
+	User string `json:"user"`
+	Pass string `json:"pass"`
+	Tray bool   `json:"tray"`
 }
 
 // runtimeDir keeps the writable bits (settings, config, sing-box.exe, log) out
@@ -116,11 +102,6 @@ func main() {
 		return
 	}
 	defer os.Remove(lockPath)
-
-	// A leftover backup means the previous run died while the system proxy was
-	// pointed at us. Only touch it once we own the lock - a live instance still
-	// holds the proxy on purpose.
-	app.restoreSystemProxy()
 
 	// Windows named mutex - Inno Setup AppMutex detects this
 	kernel32 := syscall.NewLazyDLL("kernel32.dll")
@@ -195,7 +176,7 @@ func showExisting() {
 // --- Settings -----------------------------------------
 
 func (a *App) loadSettings() {
-	a.settings = Settings{Port: 1080, Tray: true, Mode: modeTun, LocalPort: defaultLocalPort, SystemProxy: true}
+	a.settings = Settings{Port: 1080, Tray: true}
 
 	paths := []string{filepath.Join(a.runDir, "settings.json")}
 	if a.appDir != "" {
@@ -216,14 +197,8 @@ func (a *App) loadSettings() {
 }
 
 func (a *App) normalizeSettings() {
-	if a.settings.Mode != modeProxy {
-		a.settings.Mode = modeTun
-	}
 	if a.settings.Port < 1 || a.settings.Port > 65535 {
 		a.settings.Port = 1080
-	}
-	if a.settings.LocalPort < 1024 || a.settings.LocalPort > 65535 {
-		a.settings.LocalPort = defaultLocalPort
 	}
 }
 
@@ -235,9 +210,8 @@ func (a *App) saveSettings() {
 // --- UI -----------------------------------------------
 
 func (a *App) runUI() {
-	var hostEdit, portEdit, userEdit, passEdit, localPortEdit *walk.LineEdit
-	var tunRB, proxyRB *walk.RadioButton
-	var sysProxyCB, trayCB *walk.CheckBox
+	var hostEdit, portEdit, userEdit, passEdit *walk.LineEdit
+	var trayCB *walk.CheckBox
 	var connectBtn, disconnBtn *walk.PushButton
 	var statusLabel *walk.Label
 	var logoView *walk.ImageView
@@ -272,23 +246,6 @@ func (a *App) runUI() {
 				Label{Text: "Pass:", Font: Font{Family: "Segoe UI", PointSize: 9}},
 				LineEdit{AssignTo: &passEdit, Text: a.settings.Pass, PasswordMode: true, Font: Font{Family: "Segoe UI", PointSize: 9}},
 			}},
-			Composite{Layout: VBox{Margins: Margins{Left: 15, Top: 6, Right: 15, Bottom: 4}, Spacing: 4}, Children: []Widget{
-				Label{Text: "Mode koneksi:", Font: Font{Family: "Segoe UI", PointSize: 9, Bold: true}},
-				Composite{Layout: HBox{Spacing: 12}, Children: []Widget{
-					RadioButton{AssignTo: &tunRB, Text: "TUN (butuh admin)", Font: Font{Family: "Segoe UI", PointSize: 9},
-						OnClicked: func() { a.setMode(modeTun) }},
-					RadioButton{AssignTo: &proxyRB, Text: "Proxy (tanpa admin)", Font: Font{Family: "Segoe UI", PointSize: 9},
-						OnClicked: func() { a.setMode(modeProxy) }},
-				}},
-				Composite{Layout: Grid{Columns: 2, Spacing: 6}, Children: []Widget{
-					Label{Text: "Proxy port:", Font: Font{Family: "Segoe UI", PointSize: 9}},
-					LineEdit{AssignTo: &localPortEdit, Text: strconv.Itoa(a.settings.LocalPort), Font: Font{Family: "Segoe UI", PointSize: 9}},
-				}},
-				Label{Text: "TUN: stack gvisor, MTU 1400 (dipatok biar stabil)", Font: Font{Family: "Segoe UI", PointSize: 9, Italic: true}},
-				CheckBox{AssignTo: &sysProxyCB, Text: "Set proxy Windows + env var app (mode Proxy)",
-					Checked: a.settings.SystemProxy, Font: Font{Family: "Segoe UI", PointSize: 9},
-					OnCheckedChanged: func() { a.settings.SystemProxy = sysProxyCB.Checked() }},
-			}},
 			Composite{Layout: VBox{Margins: Margins{Left: 15, Top: 4, Right: 15, Bottom: 4}}, Children: []Widget{
 				CheckBox{AssignTo: &trayCB, Text: "Minimize to tray when closed", Checked: a.settings.Tray, Font: Font{Family: "Segoe UI", PointSize: 9},
 					OnCheckedChanged: func() { a.trayEnabled = trayCB.Checked() }},
@@ -297,7 +254,6 @@ func (a *App) runUI() {
 				PushButton{AssignTo: &connectBtn, Text: "Connect Socks VPN", Font: Font{Family: "Segoe UI", PointSize: 10, Bold: true},
 					OnClicked: func() {
 						a.hostEdit, a.portEdit, a.userEdit, a.passEdit = hostEdit, portEdit, userEdit, passEdit
-						a.localPortEdit = localPortEdit
 						a.connectBtn, a.disconnBtn = connectBtn, disconnBtn
 						a.statusLabel = statusLabel
 						a.trayCB = trayCB
@@ -322,19 +278,9 @@ func (a *App) runUI() {
 	}.Create()
 
 	a.hostEdit, a.portEdit, a.userEdit, a.passEdit = hostEdit, portEdit, userEdit, passEdit
-	a.localPortEdit = localPortEdit
-	a.tunRB, a.proxyRB = tunRB, proxyRB
-	a.sysProxyCB = sysProxyCB
 	a.connectBtn, a.disconnBtn = connectBtn, disconnBtn
 	a.statusLabel = statusLabel
 	a.trayCB = trayCB
-
-	if a.settings.Mode == modeProxy {
-		proxyRB.SetChecked(true)
-	} else {
-		tunRB.SetChecked(true)
-	}
-	a.applyModeToUI()
 
 	// Set window icon (taskbar) from ICO
 	if ico, err := walk.NewIconFromFile(trayIconPath); err == nil {
@@ -366,37 +312,26 @@ func (a *App) runUI() {
 	a.mw.Run()
 }
 
-func (a *App) currentMode() string {
-	if a.proxyRB != nil && a.proxyRB.Checked() {
-		return modeProxy
-	}
-	return modeTun
+func (a *App) exitApp() {
+	a.killProcess()
+	systray.Quit()
+	a.trayEnabled = false
+	a.mw.Close()
+	os.Exit(0)
 }
 
-func (a *App) applyModeToUI() {
-	isProxy := a.currentMode() == modeProxy
-	a.settings.Mode = a.currentMode()
-	if a.localPortEdit != nil {
-		a.localPortEdit.SetEnabled(isProxy)
-	}
-	if a.sysProxyCB != nil {
-		a.sysProxyCB.SetEnabled(isProxy)
-	}
-}
+// --- Connect / Disconnect -----------------------------
 
-func (a *App) setMode(mode string) {
-	if a.tunRB != nil && a.proxyRB != nil {
-		if mode == modeProxy {
-			a.proxyRB.SetChecked(true)
-		} else {
-			a.tunRB.SetChecked(true)
-		}
+func (a *App) showFromTray() {
+	if a.mw == nil {
+		return
 	}
-	a.applyModeToUI()
-	a.saveSettings()
+	a.mw.Synchronize(func() {
+		win.ShowWindow(a.mw.Handle(), win.SW_RESTORE)
+		win.SetForegroundWindow(a.mw.Handle())
+		a.windowVisible = true
+	})
 }
-
-// --- System Tray --------------------------------------
 
 func (a *App) startTray() {
 	if a.trayStarted {
@@ -408,7 +343,7 @@ func (a *App) startTray() {
 		icoData, _ := os.ReadFile(trayIconPath)
 		systray.SetIcon(icoData)
 		systray.SetTitle(appName)
-		systray.SetTooltip(appName + " v" + appVersion + "\nby JhopanStore\nMode: " + a.settings.Mode)
+		systray.SetTooltip(appName + " v" + appVersion + "\nby JhopanStore\nMode: TUN (gvisor)")
 
 		mShow := systray.AddMenuItem("Show Window", "")
 		systray.AddSeparator()
@@ -423,25 +358,6 @@ func (a *App) startTray() {
 		mDisconnect.Click(func() { a.mw.Synchronize(func() { a.doDisconnect() }) })
 		mExit.Click(func() { a.exitApp() })
 	}, func() {})
-}
-
-func (a *App) showFromTray() {
-	if a.mw == nil {
-		return
-	}
-	a.mw.Synchronize(func() {
-		win.ShowWindow(a.mw.Handle(), win.SW_RESTORE)
-		win.SetForegroundWindow(a.mw.Handle())
-		a.windowVisible = true
-	})
-}
-
-func (a *App) exitApp() {
-	a.killProcess()
-	systray.Quit()
-	a.trayEnabled = false
-	a.mw.Close()
-	os.Exit(0)
 }
 
 // --- Connect / Disconnect -----------------------------
@@ -462,51 +378,33 @@ func (a *App) doConnect() {
 		return
 	}
 
-	mode := a.currentMode()
-
-	localPort := a.settings.LocalPort
-	if mode == modeProxy {
-		localPort, err = strconv.Atoi(strings.TrimSpace(a.localPortEdit.Text()))
-		if err != nil || localPort < 1024 || localPort > 65535 {
-			walk.MsgBox(a.mw, "Error", "Proxy port tidak valid (1024-65535)", walk.MsgBoxIconWarning)
-			return
-		}
-	}
-
 	if a.connected {
 		return
 	}
 
-	// TUN needs Administrator; offer the two sane escapes instead of failing later.
-	if mode == modeTun && !isAdmin() {
-		answer := walk.MsgBox(a.mw, "Mode TUN butuh Administrator",
-			"Mode TUN memerlukan hak Administrator.\n\n"+
-				"Yes  = jalankan ulang sebagai Administrator\n"+
-				"No   = lanjut pakai mode Proxy (tanpa admin)",
+	// TUN is the only mode here, and it needs Administrator.
+	if !isAdmin() {
+		answer := walk.MsgBox(a.mw, "TUN butuh Administrator",
+			"TUN memerlukan hak Administrator.\n\n"+
+				"Yes = jalankan ulang sebagai Administrator\n"+
+				"No  = batal",
 			walk.MsgBoxYesNo|walk.MsgBoxIconQuestion)
 		if answer == walk.DlgCmdYes {
 			a.relaunchElevated()
-			return
 		}
-		mode = modeProxy
-		a.setMode(modeProxy)
-		a.statusLabel.SetText("Status: mode Proxy (tanpa admin)")
+		return
 	}
 
 	a.settings = Settings{
 		Host: host, Port: portNum, User: user, Pass: pass,
-		Tray: a.trayCB.Checked(), Mode: mode,
-		LocalPort: localPort, SystemProxy: a.sysProxyCB.Checked(),
-		ProxyBackup: a.settings.ProxyBackup,
-		EnvBackup:   a.settings.EnvBackup,
-		WinHTTP:     a.settings.WinHTTP,
+		Tray: a.trayCB.Checked(),
 	}
 	a.saveSettings()
 	a.statusLabel.SetText("Status: Connecting...")
 	a.connectBtn.SetEnabled(false)
 
 	go func() {
-		errMsg := a.startCore(mode, host, portNum, user, pass, localPort)
+		errMsg := a.startCore(host, portNum, user, pass)
 		a.mw.Synchronize(func() {
 			if errMsg != "" {
 				a.statusLabel.SetText("Status: " + errMsg)
@@ -514,22 +412,15 @@ func (a *App) doConnect() {
 				return
 			}
 			a.connected = true
-			a.statusLabel.SetText(a.connectedStatus(mode, host, portNum, localPort))
+			a.statusLabel.SetText(a.connectedStatus(host, portNum))
 			a.connectBtn.SetEnabled(false)
 			a.disconnBtn.SetEnabled(true)
 		})
 	}()
 }
 
-func (a *App) connectedStatus(mode, host string, port, localPort int) string {
-	if mode == modeProxy {
-		text := fmt.Sprintf("Status: Connected (Proxy) %s:%d via 127.0.0.1:%d", host, port, localPort)
-		if a.settings.SystemProxy {
-			text += " - proxy sistem aktif"
-		}
-		return text
-	}
-	return fmt.Sprintf("Status: Connected (TUN) %s:%d", host, port)
+func (a *App) connectedStatus(host string, port int) string {
+	return fmt.Sprintf("Status: Connected (TUN, gvisor) %s:%d", host, port)
 }
 
 // findSingBox locates the core executable: next to the app (installer), in the
@@ -551,45 +442,18 @@ func findSingBox(a *App) (string, error) {
 	return "", fmt.Errorf("sing-box.exe tidak ditemukan - instal ulang atau jalankan desktop/scripts/fetch-core.sh")
 }
 
-func (a *App) startCore(mode, host string, port int, user, pass string, localPort int) string {
+func (a *App) startCore(host string, port int, user, pass string) string {
 	binPath, err := findSingBox(a)
 	if err != nil {
 		return "Core tidak ditemukan: " + err.Error()
 	}
 
-	var config map[string]interface{}
-	proxyAddr := ""
-	if mode == modeProxy {
-		config = boxcfg.Proxy(host, port, user, pass, boxcfg.ProxyOptions{LocalPort: localPort})
-		proxyAddr = "127.0.0.1:" + strconv.Itoa(localPort)
-	} else {
-		config = boxcfg.Tun(host, port, user, pass, boxcfg.TunOptions{Stack: boxcfg.StackGVisor})
-	}
+	config := boxcfg.Tun(host, port, user, pass, boxcfg.TunOptions{Stack: boxcfg.StackGVisor})
 
 	configPath := filepath.Join(a.runDir, "config.json")
 	data, _ := json.MarshalIndent(config, "", "  ")
 	if err := os.WriteFile(configPath, data, 0644); err != nil {
 		return "Write config failed: " + err.Error()
-	}
-
-	if mode == modeProxy && a.settings.SystemProxy {
-		prev, err := applySystemProxy(proxyAddr)
-		if err != nil {
-			return "Set system proxy failed: " + err.Error()
-		}
-		a.settings.ProxyBackup = &prev
-
-		// CLI tools ignore the WinINet registry; they follow HTTP_PROXY etc.
-		if envPrev, err := applyEnvProxy(proxyAddr); err == nil {
-			a.settings.EnvBackup = &envPrev
-		}
-		// WinHTTP (Windows Update, installers, services) needs admin.
-		if isAdmin() {
-			if whPrev, err := applyWinHTTPProxy(proxyAddr); err == nil {
-				a.settings.WinHTTP = &whPrev
-			}
-		}
-		a.saveSettings()
 	}
 
 	logPath := filepath.Join(a.runDir, "sing-box.log")
@@ -604,7 +468,6 @@ func (a *App) startCore(mode, host string, port int, user, pass string, localPor
 	cmd.Stderr = logFile
 	if err := cmd.Start(); err != nil {
 		logFile.Close()
-		a.restoreSystemProxy()
 		return "Start failed: " + err.Error()
 	}
 
@@ -622,7 +485,7 @@ func (a *App) startCore(mode, host string, port int, user, pass string, localPor
 			}
 			// Died right after start while in TUN mode: wintun missing, driver
 			// blocked, route conflict. Offer the proxy mode instead of a dead end.
-			if mode == modeTun && time.Since(started) < 5*time.Second {
+			if time.Since(started) < 5*time.Second {
 				a.handleTunFailure(logPath)
 				return
 			}
@@ -638,20 +501,18 @@ func (a *App) handleTunFailure(logPath string) {
 	a.connectBtn.SetEnabled(true)
 	a.disconnBtn.SetEnabled(false)
 	a.killProcess()
-	a.statusLabel.SetText("Status: TUN gagal start - coba mode Proxy")
+	a.statusLabel.SetText("Status: TUN gagal start")
 
 	detail := tailFile(logPath, 400)
 	if detail != "" {
 		detail = "\n\nLog sing-box:\n" + detail
 	}
-	answer := walk.MsgBox(a.mw, "TUN gagal start",
-		"sing-box keluar tepat setelah start di mode TUN."+detail+
-			"\n\nPindah ke mode Proxy (tanpa admin) dan connect ulang?",
-		walk.MsgBoxYesNo|walk.MsgBoxIconWarning)
-	if answer == walk.DlgCmdYes {
-		a.setMode(modeProxy)
-		a.doConnect()
-	}
+	walk.MsgBox(a.mw, "TUN gagal start",
+		"sing-box keluar tepat setelah start.\n\nYang bisa dicek:\n"+
+			"  1. jalankan sebagai Administrator\n"+
+			"  2. tambahkan folder app + %LOCALAPPDATA%\\SocksClientDesktop ke exclusion antivirus\n"+
+			"  3. tekan Diagnosa untuk melihat log lengkap"+detail,
+		walk.MsgBoxIconWarning)
 }
 
 func tailFile(path string, max int) string {
@@ -672,34 +533,7 @@ func (a *App) doDisconnect() {
 	a.disconnBtn.SetEnabled(false)
 }
 
-// restoreSystemProxy puts WinINet, the proxy environment variables and the
-// WinHTTP settings back exactly as we found them.
-func (a *App) restoreSystemProxy() {
-	changed := false
-
-	if a.settings.ProxyBackup != nil && a.settings.ProxyBackup.Valid {
-		writeSystemProxy(*a.settings.ProxyBackup)
-		a.settings.ProxyBackup = nil
-		changed = true
-	}
-	if a.settings.EnvBackup != nil && a.settings.EnvBackup.Valid {
-		writeEnvProxy(*a.settings.EnvBackup)
-		a.settings.EnvBackup = nil
-		changed = true
-	}
-	if a.settings.WinHTTP != nil && a.settings.WinHTTP.Valid {
-		restoreWinHTTPProxy(*a.settings.WinHTTP)
-		a.settings.WinHTTP = nil
-		changed = true
-	}
-
-	if changed {
-		a.saveSettings()
-	}
-}
-
 func (a *App) killProcess() {
-	a.restoreSystemProxy()
 
 	a.mu.Lock()
 	if a.process == nil || a.process.Process == nil {
@@ -741,28 +575,23 @@ func (a *App) showHowTo() {
 	walk.MsgBox(a.mw, "Cara Pakai",
 		"1. Pastikan HP server menjalankan VPN Hospot\n"+
 			"2. Hubungkan PC ke hotspot server\n"+
-			"3. Isi Host, Port, User, Pass\n"+
-			"4. Pilih mode koneksi:\n"+
-			"   - TUN: semua paket (TCP + UDP) lewat tunnel, butuh Administrator\n"+
-			"   - Proxy: tanpa admin, tanpa driver. Browser/Electron/Edge ikut otomatis\n"+
-			"     lewat proxy Windows, tool CLI (Go/Python/Node/curl/git) ikut lewat\n"+
-			"     environment variable, layanan WinHTTP ikut kalau dijalankan sebagai admin\n"+
-			"5. Klik Connect Socks VPN\n\n"+
-			"Kalau TUN gagal start di laptop ini, aplikasi otomatis menawarkan pindah ke\n"+
-			"mode Proxy. Tekan Diagnosa untuk melihat penyebabnya.\n\n"+
-			"TUN nyambung tapi internet tidak jalan?\n"+
-			"  - ganti TUN stack ke gvisor (beberapa driver NIC bermasalah dengan system stack)\n"+
-			"  - turunkan TUN MTU ke 1400 (jaringan hotspot sering memblokir paket besar)\n"+
-			"  - DNS di mode TUN selalu lewat tunnel, jadi resolver DHCP tidak bisa bocor",
+			"3. Isi Host, Port, User, Pass (sesuai server SOCKS)\n"+
+			"4. Klik Connect Socks VPN - app langsung jalan sebagai Administrator kalau belum\n"+
+			"5. Semua trafik TCP + UDP + DNS masuk ke tunnel (stack gvisor, MTU 1400)\n\n"+
+			"Kalau gagal start:\n"+
+			"  - pastikan dijalankan sebagai Administrator\n"+
+			"  - tambahkan folder app + %LOCALAPPDATA%\\SocksClientDesktop ke exclusion antivirus\n"+
+			"  - tekan Diagnosa untuk melihat penyebabnya\n\n"+
+			"Kalau nyambung tapi internet tidak jalan, cek apakah server SOCKS benar-benar\n"+
+			"meneruskan trafik (Host/Port/auth), lalu lihat ekor log di Diagnosa.",
 		walk.MsgBoxIconInformation)
 }
 
 func (a *App) showDiagnostics() {
-	mode := a.currentMode()
 	admin := isAdmin()
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "Mode: %s\n", mode)
+	fmt.Fprintf(&b, "Mode: TUN (stack gvisor, MTU 1400)\n")
 	fmt.Fprintf(&b, "Administrator: %s\n", map[bool]string{true: "ya", false: "tidak"}[admin])
 	if a.statusLabel != nil {
 		fmt.Fprintf(&b, "%s\n", a.statusLabel.Text())
@@ -779,62 +608,28 @@ func (a *App) showDiagnostics() {
 		}
 	}
 
-	port := a.settings.LocalPort
-	fmt.Fprintf(&b, "Proxy lokal: 127.0.0.1:%d (%s)\n", port, portState(port))
-	fmt.Fprintf(&b, "Set proxy otomatis: %s\n", map[bool]string{true: "aktif", false: "nonaktif"}[a.settings.SystemProxy])
-
-	if p, err := readSystemProxy(); err == nil {
-		fmt.Fprintf(&b, "WinINet: enable=%d server=%q\n", p.ProxyEnable, p.ProxyServer)
-	}
-	if e, err := readEnvProxy(); err == nil {
-		fmt.Fprintf(&b, "Env: HTTP_PROXY=%q ALL_PROXY=%q\n", e.HTTPProxy, e.ALLProxy)
-	}
-	switch w := readWinHTTPProxy(); {
-	case !w.Valid:
-		b.WriteString("WinHTTP: tidak terbaca\n")
-	case w.Direct:
-		b.WriteString("WinHTTP: direct (belum diubah)\n")
-	default:
-		fmt.Fprintf(&b, "WinHTTP: %s (bypass %s)\n", w.Proxy, w.Bypass)
-	}
-
 	logTail := tailFile(filepath.Join(a.runDir, "sing-box.log"), 600)
 	if logTail != "" {
 		b.WriteString("\nLog sing-box (ekor):\n" + logTail + "\n")
 	}
 
-	b.WriteString("\nSaran:\n" + a.diagnoseAdvice(mode, admin, logTail))
+	b.WriteString("\nSaran:\n" + diagnoseAdvice(admin, logTail))
 	walk.MsgBox(a.mw, "Diagnosa", b.String(), walk.MsgBoxIconInformation)
 }
 
-func portState(port int) string {
-	conn, err := net.DialTimeout("tcp", "127.0.0.1:"+strconv.Itoa(port), 300*time.Millisecond)
-	if err != nil {
-		return "bebas"
-	}
-	conn.Close()
-	return "sudah terpakai"
-}
-
-func (a *App) diagnoseAdvice(mode string, admin bool, logTail string) string {
+func diagnoseAdvice(admin bool, logTail string) string {
 	low := strings.ToLower(logTail)
 	switch {
-	case mode == modeTun && !admin:
-		return "TUN butuh Administrator. Connect akan menawarkan jalan sebagai admin,\natau pakai mode Proxy."
-	case mode == modeTun && !strings.Contains(low, "dns: exchanged"):
-		return "TUN aktif tapi belum ada DNS yang lewat tunnel. Coba TUN stack = gvisor,\n" +
-			"lalu TUN MTU = 1400. Kalau adapter saja tidak muncul, lihat saran wintun di bawah."
+	case !admin:
+		return "TUN butuh Administrator. Connect akan menawarkan jalan sebagai admin."
+	case !strings.Contains(low, "dns: exchanged"):
+		return "TUN aktif tapi belum ada DNS yang lewat tunnel. Cek jaringan ke server SOCKS,\n" +
+			"lalu lihat ekor log di atas."
 	case strings.Contains(low, "wintun") || strings.Contains(low, "access is denied") || strings.Contains(low, "adapter"):
 		return "Adapter wintun tidak bisa dibuat - biasanya antivirus/EDR memblokir driver bawaan core.\n" +
-			"Tambahkan exclusion untuk folder aplikasi dan %LOCALAPPDATA%\\SocksClientDesktop, restart, coba lagi.\n" +
-			"Sementara pakai mode Proxy."
-	case strings.Contains(low, "address already in use") || strings.Contains(low, "only one usage of each socket address"):
-		return "Port bentrok. Ganti 'Proxy port' di aplikasi lalu connect ulang."
-	case mode == modeProxy:
-		return "Mode Proxy aktif: browser/Electron/Edge ikut otomatis, tool CLI ikut lewat env var,\n" +
-			"layanan WinHTTP ikut kalau app dijalankan sebagai admin.\n" +
-			"App dengan stack sendiri (Steam, game, torrent) tetap langsung - arahkan manual ke\n" +
-			"127.0.0.1:" + strconv.Itoa(a.settings.LocalPort) + ", atau pakai TUN kalau butuh UDP."
+			"Tambahkan exclusion untuk folder aplikasi dan %LOCALAPPDATA%\\SocksClientDesktop, restart, coba lagi."
+	case strings.Contains(low, "connection refused") || strings.Contains(low, "i/o timeout"):
+		return "Server SOCKS tidak menjawab. Cek Host/Port, dan pastikan HP server jalan + PC terhubung hotspotnya."
 	default:
 		return "Tidak ada masalah terdeteksi."
 	}

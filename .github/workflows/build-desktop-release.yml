@@ -115,12 +115,11 @@ jobs:
             - `SocksClientDesktop_Setup_v${{ env.VERSION }}.exe`
 
             ### What's new
-            - Connection mode selector: **TUN** (all traffic through the tunnel) or **Proxy** (no TUN, no admin)
-            - Proxy mode runs a local SOCKS5 + HTTP inbound and points the Windows system proxy at it
-            - Proxy settings are restored exactly as found on disconnect (crash-safe)
-            - If TUN fails to start, the app offers to switch to proxy mode
-            - Runtime files (settings, config, log, sing-box.exe) moved to `%LOCALAPPDATA%\SocksClientDesktop`
-            - Proxy mode works without Administrator rights (TUN re-launches elevated on demand)
+            - TUN only: every IP packet (TCP, UDP, DNS) goes through the tunnel
+            - TUN stack pinned to `gvisor`, MTU pinned to `1400` - the combination that holds up on hotspot paths and on machines whose NIC driver misbehaves with the OS stack
+            - No proxy mode: the app never sets a Windows system proxy, never listens on a local port, and never touches WinINet / environment variables / WinHTTP
+            - Dialogs and Diagnosa updated for the single mode
+            - Runtime files (settings, config, log, sing-box.exe) live in `%LOCALAPPDATA%\SocksClientDesktop`
 
             ### Install
             1. Download the installer

@@ -24,7 +24,7 @@ Desktop — run from `desktop/`:
 ```bash
 bash scripts/fetch-core.sh       # core into embed/ (skip only if SINGBOX_BIN is set)
 go vet ./...
-go test -count=1 ./...            # 3 tests: config validity, system proxy round-trip, proxy-mode traffic
+go test -count=1 ./...            # config validity (TUN/gvisor) + boxcfg unit tests
 windres -o rsrc_windows_amd64.syso app.rc
 go build -ldflags="-s -w -H windowsgui" -o socks-client.exe .
 ISCC.exe setup.iss                # installer -> installer_output/
@@ -39,8 +39,8 @@ bash scripts/fetch-core.sh        # libbox.aar from the "core" release
 
 ## Code layout
 
-- `desktop/main.go` — UI, tray, connection lifecycle, sing-box config builders (`buildTunConfig`, `buildProxyConfig`).
-- `desktop/sysproxy_windows.go` — WinINet registry read/apply/restore, admin check, UAC re-launch.
+- `desktop/main.go` — UI, tray, connection lifecycle, core supervision, dialogs.
+- `desktop/winutil_windows.go` — Administrator check + UAC re-launch (the only Windows plumbing left).
 - `desktop/main_test.go` — runnable checks (see above); needs the core binary.
 - `desktop/scripts/fetch-core.sh`, `android/scripts/fetch-core.sh` — pull the core from the `core` release.
 - `.github/workflows/build-core.yml` — the only place the core is built (no optional tags; Android keeps `with_gvisor`). Inputs: `version`, `slim` (default on), `upx`.
@@ -51,16 +51,13 @@ bash scripts/fetch-core.sh        # libbox.aar from the "core" release
 ## Connection modes (desktop)
 
 - `tun` — virtual interface, all traffic, needs Administrator. If not elevated, the app offers UAC re-launch.
-- `proxy` — local `mixed` (SOCKS5+HTTP) inbound on `127.0.0.1:<local_port>`, Windows system proxy pointed at it, no admin.
 - Runtime state lives in `%LOCALAPPDATA%\SocksClientDesktop` (`settings.json`, `config.json`, `sing-box.log`, extracted `sing-box.exe`). Never write to the install dir.
-- `settings.json` fields `proxy_backup` / `env_backup` / `winhttp_backup` hold the previous WinINet, environment-variable and WinHTTP values; restore them on disconnect **and** on startup (crash recovery). Do not clear them without restoring.
-- Proxy mode writes three layers (`sysproxy_windows.go`): WinINet registry, `HKCU\Environment` proxy vars, and `netsh winhttp set proxy` (elevated only). Every layer is covered by a round-trip test in `main_test.go` — keep them green.
 - TUN needs no external driver: `sing-tun` embeds `wintun.dll` (amd64/arm/arm64/386) into the core binary. When TUN still fails, it is admin rights or AV/EDR blocking the extracted driver — the app's Diagnosa dialog spells that out.
 - TUN defaults: stack `gvisor` on **both** clients (desktop `boxcfg`, Android `SocksVpnService`), MTU `1400` (`DefaultTunMTU`), DNS `ipv4_only`. The desktop UI no longer exposes them - gvisor/1400 are pinned on purpose, `boxcfg` keeps the knobs for `dumpconfig`/CI. Mode still defaults to `tun` with `proxy` as the unelevated fallback. `mixed` (system TCP + gvisor UDP) and `system` are selectable; an unknown stack falls back to gvisor, never to system. Rationale: hotspot MTUs are often smaller (PMTU blackhole with big MTU) and gvisor does not depend on the machine's NIC driver stack. Keep `dumpconfig` variants in sync when these change.
 - TUN config rules that are load-bearing and tested in `desktop/internal/boxcfg/boxcfg_test.go`: an explicit `{"type":"direct","tag":"direct"}` outbound (route rule + bootstrap DNS reference it; without it sing-box dies with `outbound detour not found: direct`), `{"protocol":"dns","action":"hijack-dns"}` so DNS cannot leak to a DHCP resolver, `{"server":"local"}` for bootstrap only (a `direct`-detoured DNS server is rejected inside `auto_route`), and the anti-loop rule for the server IP/hostname. `sing-box check` does NOT catch missing tag references — that is why these unit tests exist.
 - The core CLI builds use `-tags with_gvisor` (+4 MB) so the app's `gvisor` TUN stack actually exists at runtime; without the tag selecting gvisor fails at start.
 - `desktop/scripts/tun-selftest.sh` (Windows, admin) validates TUN end to end on a real machine: local SOCKS5 upstream, real TUN config, TCP + DNS assertions, teardown check. Run it after touching `boxcfg`.
-- Any change to proxy/tun config must keep `go test ./...` green — `TestProxyModeCarriesTraffic` is the end-to-end proof of the non-TUN path.
+- Any change to TUN config must keep `go test ./...` green; `desktop/scripts/tun-selftest.sh` is the end-to-end proof on a real machine.
 
 ## Release & tag convention (MANDATORY)
 
@@ -99,7 +96,7 @@ Everything inside this repo is in scope. Sibling projects on the same machine (`
 - **Both clients now run sing-box 1.14** (`libbox.aar` and the desktop core come from the same `core` release). Config rules that apply to both: no `sniff`/`sniff_override_destination` in the tun inbound (removed in 1.13 - sniffing is a route action), no legacy DNS `address` field (removed in 1.14 - use `{"type":"tcp","server":"8.8.8.8"}`), route rules may use `"action"`. `android/config.example.json` and `android/config.hostname.json` are the fixtures the Android builder emits; the core workflow runs `sing-box check` on them, so keep them in sync with `SocksVpnService.buildSingBoxConfig`.
 - Never commit `desktop/embed/sing-box.exe` or `android/app/libs/libbox.aar`; both are gitignored and rebuilt by CI.
 - Android anti-DNS-leak design: DNS servers detour through `socks-out`, `openTun` adds NO public fallback resolvers (8.8.8.8/1.1.1.1 at the OS layer are a leak path), and `{"protocol":"dns","action":"hijack-dns"}` catches every query including one aimed at a hardcoded resolver. Do not re-add fallback DNS. Both clients share this shape on purpose.
-- TUN needs Administrator; proxy mode must stay usable unelevated — do not re-add `requireAdministrator` to `desktop/app.manifest`.
+- TUN needs Administrator, so `desktop/app.manifest` stays `asInvoker` and the app re-launches itself via UAC. There is no unelevated fallback mode any more.
 - `walk` handles must be touched on the UI thread: cross-goroutine updates go through `a.mw.Synchronize`.
 - Killing sing-box must use `taskkill /F /T` on the PID or the TUN interface stays behind.
 - On Windows git-bash, `./gradlew` dies with `Could not find or load main class org.gradle.wrapper.GradleWrapperMain` (MSYS path handed to native `java`). Use `cmd //c gradlew.bat ...` or invoke the wrapper directly:

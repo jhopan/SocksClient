@@ -5,7 +5,7 @@
 **v1.2.0**
 
 SOCKS5 client for connecting a device to a SOCKS5 hotspot server.
-Two connection modes: **TUN** (full tunnel) and **Proxy** (no TUN, no admin).
+One connection mode: **TUN** (full tunnel, needs Administrator).
 
 Available for **Android** and **Windows Desktop**.
 
@@ -19,12 +19,16 @@ Available for **Android** and **Windows Desktop**.
 
 ---
 
-## Modes
+## Mode
 
-| Mode | How it works | Needs admin | Use when |
-|------|--------------|-------------|----------|
-| **TUN** | sing-box creates a virtual interface and routes every IP packet into it (wintun is embedded in the core, nothing to install). TUN stack `gvisor` (default) or `system`, MTU default **1400** | Yes | Normal case — all apps including UDP/games go through the tunnel |
-| **Proxy** | sing-box opens a local SOCKS5 + HTTP inbound and three proxy layers are pointed at it: WinINet (browsers, Electron, Edge), user environment variables (`HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY` — Go, Python, Node, curl, git) and WinHTTP when elevated (Windows Update, installers) | No (WinHTTP layer only when elevated) | TUN does not start (AV blocks the wintun driver, no admin, route conflict) |
+Desktop has exactly one mode: **TUN**. sing-box creates a virtual interface and
+routes every IP packet into it — TCP, UDP and DNS alike (wintun is embedded in
+the core, nothing to install). It needs Administrator; the app offers the UAC
+re-launch when it is not elevated.
+
+Want a plain HTTP/SOCKS proxy instead? Point the client straight at your SOCKS
+server — the app does not set a system proxy, does not listen on a local port,
+and does not touch WinINet, environment variables or WinHTTP.
 
 ### TUN defaults (and when to change them)
 
@@ -35,7 +39,7 @@ Available for **Android** and **Windows Desktop**.
 | DNS strategy | `ipv4_only` | the SOCKS hotspot path is IPv4; v6 queries would have nowhere sane to go | only if the server gains real IPv6 routing |
 
 Apps that keep their own network stack (Steam, most games, torrent clients) ignore all
-three layers and stay direct in proxy mode — point them at `127.0.0.1:2080` manually or
+own network stack still go direct by design.
 use TUN when UDP is needed.
 
 ### TUN correctness
@@ -65,10 +69,10 @@ It starts a local SOCKS5 server, runs the real TUN config against it, proves TCP
 travel the tunnel and that the adapter/routes/internet are restored afterwards.
 
 The **Diagnosa** button reports: active mode, admin state, core path/version, whether the
-local port is free, the current WinINet/env/WinHTTP values, the tail of `sing-box.log`
+core version and path, admin state, and the tail of `sing-box.log`
 and an advice line derived from it. Turns "TUN does not work" into a reason.
 
-Proxy mode is crash-safe: your previous WinINet proxy values are saved before being replaced and restored on disconnect — and on the next launch if the app was killed while connected.
+TUN state is crash-safe: leftover routes are released on disconnect and the next launch is clean — if the app was killed while connected.
 
 ---
 
@@ -123,10 +127,8 @@ android/scripts/fetch-core.sh     # -> android/app/libs/libbox.aar
 Go + Walk (native Win32, no WebView2) + bundled sing-box v1.12.2.
 
 ### Features
-- Mode selector: TUN / Proxy
-- Proxy mode needs no Administrator rights and no TUN interface
+- No mode selector: TUN is the only path
 - Automatic fallback offer when TUN fails right after start
-- System proxy set/restore via WinINet, with a persisted backup
 - System tray, minimize-to-tray, single instance (Windows mutex)
 - Process tree cleanup on exit (no orphan sing-box)
 - Inno Setup installer with silent auto-upgrade
