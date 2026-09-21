@@ -98,6 +98,7 @@ Everything inside this repo is in scope. Sibling projects on the same machine (`
 - Workflows must sit in the **repo root** `.github/workflows/`. A workflow under `android/.github/` is never read by GitHub and silently does nothing.
 - The desktop config targets sing-box >= 1.13: `sniff` moved out of the tun inbound into a route action (`{"action":"sniff"}`). The old `inet4_address` field is gone too. Do not copy the desktop config into the Android builder — libbox there is 1.10.x and rejects route-rule `"action"`.
 - Never commit `desktop/embed/sing-box.exe` or `android/app/libs/libbox.aar`; both are gitignored and rebuilt by CI.
+- Android anti-DNS-leak design (sing-box 1.10, no `action` field): the app's DNS server detours through `socks-out`, `openTun` adds NO public fallback resolvers (8.8.8.8/1.1.1.1 at the OS layer are a leak path), and any raw port-53 packet is dropped by the `dns-out` block outbound. Do not "helpfully" re-add fallback DNS or an `action: hijack-dns` rule - the 1.10 core rejects it.
 - TUN needs Administrator; proxy mode must stay usable unelevated — do not re-add `requireAdministrator` to `desktop/app.manifest`.
 - `walk` handles must be touched on the UI thread: cross-goroutine updates go through `a.mw.Synchronize`.
 - Killing sing-box must use `taskkill /F /T` on the PID or the TUN interface stays behind.

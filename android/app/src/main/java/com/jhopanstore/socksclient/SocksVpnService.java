@@ -496,11 +496,10 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
         sb.append("\"log\":{\"level\":\"").append(logLevel).append("\",\"timestamp\":true},");
 
         // ── DNS ──
-        // Remote DNS via SOCKS tunnel (privasi + geo-unblock)
-        // Local DNS via direct (bootstrap / resolve internal)
+        // Satu DNS saja: remote via SOCKS TCP. Tanpa local/direct DNS supaya
+        // tidak ada jalur bocor. Query dari OS tetap ditangkap di bawah.
         sb.append("\"dns\":{");
         sb.append("\"servers\":[");
-        // Satu DNS saja: remote via SOCKS TCP. Jangan sediakan local/direct DNS agar tidak ada path bocor.
         sb.append("{\"tag\":\"remote\",\"address\":\"tcp://8.8.8.8\",\"detour\":\"socks-out\"}");
         sb.append("],");
         sb.append("\"final\":\"remote\",");
@@ -546,7 +545,13 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
 
         sb.append("},");
 
-        // Direct outbound (untuk bootstrap DNS + bypass SOCKS server IP)
+        // Block outbound: menampung paket DNS port 53 yang mencoba keluar.
+        // Ini pengganti "action":"hijack-dns" yang tidak ada di sing-box 1.10:
+        // DNS jawaban yang benar datang dari server "remote" via socks-out
+        // (system DNS Android diarahkan ke VPN DNS), query bocor di-drop.
+        sb.append("{\"type\":\"block\",\"tag\":\"dns-out\"},");
+
+        // Direct outbound (untuk bootstrap + bypass SOCKS server IP)
         sb.append("{");
         sb.append("\"type\":\"direct\",");
         sb.append("\"tag\":\"direct\"");
@@ -561,6 +566,12 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
         sb.append("\"route\":{");
         sb.append("\"auto_detect_interface\":true,");
         sb.append("\"rules\":[");
+        // sing-box 1.10 has no "action" field, so DNS anti-leak works in two
+        // layers here: (1) the app's own DNS goes to the server above, which
+        // detours through socks-out; (2) any raw port-53 packet that tries to
+        // slip out of the VPN (hardcoded resolver in an app) is dropped by the
+        // dns-out block outbound. No silent leak path is left open.
+        sb.append("{\"port\":53,\"outbound\":\"dns-out\"},");
 
         // SOCKS server IP → direct (anti routing loop!)
         sb.append("{\"ip_cidr\":[\"").append(escapeJson(host)).append("/32\"],\"outbound\":\"direct\"}");
@@ -772,7 +783,10 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
         }
 
         if (options.getAutoRoute()) {
-            // DNS server
+            // VPN DNS. IMPORTANT: no public fallback here. Adding 8.8.8.8 /
+            // 1.1.1.1 at the OS layer would give apps a resolver OUTSIDE the
+            // core's DNS path - the classic DNS leak. Queries may only go to
+            // the tunnel DNS (which the core hijacks and answers via socks-out).
             io.nekohasekai.libbox.StringIterator dnsServers = options.getDNSServerAddress();
             while (dnsServers != null && dnsServers.hasNext()) {
                 String dns = dnsServers.next();
@@ -782,12 +796,6 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
                 } catch (Exception e) {
                     // Log.w(TAG, "addDnsServer failed: " + dns, e);
                 }
-            }
-            // Fallback DNS
-            builder.addDnsServer("8.8.8.8");
-            try {
-                builder.addDnsServer("1.1.1.1");
-            } catch (Exception ignored) {
             }
 
             // IPv4 routes
