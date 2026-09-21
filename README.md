@@ -23,8 +23,10 @@ Available for **Android** and **Windows Desktop**.
 
 Desktop has exactly one mode: **TUN**. sing-box creates a virtual interface and
 routes every IP packet into it — TCP, UDP and DNS alike (wintun is embedded in
-the core, nothing to install). It needs Administrator; the app offers the UAC
-re-launch when it is not elevated.
+the core, nothing to install).
+
+The app declares `requireAdministrator`, so Windows shows the UAC prompt the
+moment you launch it — TUN can never fail later for lack of rights.
 
 Want a plain HTTP/SOCKS proxy instead? Point the client straight at your SOCKS
 server — the app does not set a system proxy, does not listen on a local port,
