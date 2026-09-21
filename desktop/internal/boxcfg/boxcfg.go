@@ -22,6 +22,19 @@ type TunOptions struct {
 	MTU           int    // 0 = default (1400)
 	InterfaceName string // TUN adapter name; "sb-tun" when empty
 	LogLevel      string // sing-box log level; "info" when empty
+	// AutoInterfaceName: jangan kirim field interface_name sama sekali, biarkan
+	// core memilih namanya sendiri. Wajib di macOS, yang hanya mengizinkan utunN.
+	AutoInterfaceName bool
+}
+
+// DefaultInterfaceName mengembalikan nama interface yang aman untuk sebuah OS.
+// macOS hanya mengenal utunN, jadi di sana kita kembalikan string kosong yang
+// berarti "biarkan core memilih".
+func DefaultInterfaceName(goos string) string {
+	if goos == "darwin" {
+		return ""
+	}
+	return "sb-tun"
 }
 
 func (o TunOptions) stack() string {
@@ -57,6 +70,28 @@ func (o TunOptions) logLevel() string {
 		return o.LogLevel
 	}
 	return "info"
+}
+
+func tunInbound(opts TunOptions) map[string]interface{} {
+	in := map[string]interface{}{
+		"type": "tun",
+		"address": []string{
+			"172.19.0.1/30",
+		},
+		"mtu":          opts.mtu(),
+		"auto_route":   true,
+		"strict_route": true,
+		"stack":        opts.stack(),
+		// Keep the local network reachable: the hotspot itself, the phone's admin
+		// page and printers are not internet traffic and must not be swallowed by
+		// the tunnel.
+		"route_exclude_address": []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16"},
+	}
+	// macOS: field ini harus kosong supaya core membuat utunN sendiri.
+	if !opts.AutoInterfaceName {
+		in["interface_name"] = opts.interfaceName()
+	}
+	return in
 }
 
 func socksOutbound(host string, port int, user, pass string) map[string]interface{} {
@@ -129,15 +164,7 @@ func Tun(host string, port int, user, pass string, opts TunOptions) map[string]i
 			"final":    "remote",
 			"strategy": "ipv4_only",
 		},
-		"inbounds": []map[string]interface{}{{
-			"type": "tun", "interface_name": opts.interfaceName(),
-			"address": []string{"172.19.0.1/30"}, "mtu": opts.mtu(),
-			"auto_route": true, "strict_route": true, "stack": opts.stack(),
-			// Keep the local network reachable: the hotspot itself, the phone's
-			// admin page and printers are not internet traffic and must not be
-			// swallowed by the tunnel.
-			"route_exclude_address": []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16"},
-		}},
+		"inbounds": []map[string]interface{}{tunInbound(opts)},
 		"outbounds": []map[string]interface{}{
 			socksOutbound(host, port, user, pass),
 			// referenced by the bootstrap DNS server and by the anti-loop route

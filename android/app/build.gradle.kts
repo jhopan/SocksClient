@@ -20,8 +20,8 @@ android {
         // Konvensi: fitur baru -> naikkan versi normal (1.3.0).
         // Build ulang tanpa fitur baru -> tambah segmen keempat (1.3.0.1, 1.3.0.2, ...).
         // versionCode selalu naik: major*10000 + minor*100 + patch*10 + build.
-        versionCode = 140002
-        versionName = "1.4.0.2"
+        versionCode = 150000
+        versionName = "1.5.0"
     }
 
     buildFeatures {

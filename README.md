@@ -2,14 +2,16 @@
 
 # Socks Client
 
-**v1.4.0.2** — SOCKS5 tunnel client for Android and Windows Desktop
+**v1.5.0** — SOCKS5 tunnel client for Android, Windows, Linux and macOS
 
 Connect a device to your SOCKS5 hotspot server and route **all** traffic through
 it: TCP, UDP and DNS. One mode, tuned for networks where other clients break.
 
-[![Download APK](https://img.shields.io/badge/Android-APK%20v1.4.0.2-3ddc84?style=for-the-badge&logo=android&logoColor=white)](../../releases/latest)
-[![Download Desktop](https://img.shields.io/badge/Windows-Installer%20v1.4.0.2-0078d4?style=for-the-badge&logo=windows&logoColor=white)](../../releases/latest)
+[![Download APK](https://img.shields.io/badge/Android-APK%20v1.5.0-3ddc84?style=for-the-badge&logo=android&logoColor=white)](../../releases/latest)
+[![Download Desktop](https://img.shields.io/badge/Windows-Installer%20v1.5.0-0078d4?style=for-the-badge&logo=windows&logoColor=white)](../../releases/latest)
 [![Release](https://img.shields.io/github/v/release/jhopan/SocksClient?style=for-the-badge&color=blue)](../../releases)
+[![Linux](https://img.shields.io/badge/Linux-.deb%20%2B%20tarball-fcc624?style=for-the-badge&logo=linux&logoColor=black)](../../releases/latest)
+[![macOS](https://img.shields.io/badge/macOS-universal%20binary-000000?style=for-the-badge&logo=apple&logoColor=white)](../../releases/latest)
 [![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)](LICENSE)
 
 </div>
@@ -48,6 +50,28 @@ TUN adapter, and networks that quietly answer DNS for you.
 2. Install. The setup copies the app plus the sing-box core; Windows shows a UAC
    prompt when the app starts (TUN needs Administrator).
 3. Fill in the server **IP** and port, press **Connect Socks VPN**.
+
+**Linux**
+
+```bash
+sudo dpkg -i socksclient_<version>_amd64.deb     # or arm64
+sudo socksctl gui -host 10.0.0.1 -port 1080      # browser UI, same tunnel
+# or headless, foreground, Ctrl+C to stop:
+sudo socksctl up  -host 10.0.0.1 -port 1080
+```
+No dpkg? Use the tarball: `tar -xzf SocksClient-linux-amd64-<version>.tar.gz && sudo ./socksclient/install.sh`.
+
+**macOS (Intel and Apple Silicon)**
+
+```bash
+tar -xzf SocksClient-macos-universal-<version>.tar.gz
+cd SocksClient && ./install.sh            # copies into /usr/local
+sudo socksctl up -host 10.0.0.1 -port 1080
+```
+Inside the archive `SocksClient.command` does the same with a double click: it asks
+for the admin password and opens the browser UI. The binary is not notarized (no
+Apple Developer ID), so if Gatekeeper objects run
+`xattr -dr com.apple.quarantine SocksClient` once or right-click → Open.
 
 The server address must be an **IP literal** on both platforms. A hostname would
 have to be resolved *before* the tunnel exists - outside the tunnel on Android
@@ -128,15 +152,16 @@ sing-box has no automatic failover between DNS servers: `1.1.1.1` answers, and
 
 ## Usage notes
 
-| | Android | Windows |
-|---|---|---|
+| | Android | Windows | Linux / macOS |
+|---|---|---|---|
 | Mode | always TUN (`VpnService`) | always TUN (needs Administrator, UAC on launch) |
 | DNS | VPN DNS + `hijack-dns`; no public resolver at the OS layer | same, plus WFP blocks any DNS that tries to leave |
 | Local network | routed into the tunnel (phone hotspot case) | kept reachable via route exclusions (10/8, 172.16/12, 192.168/16, 169.254/16) |
 | Credentials at rest | password encrypted with an Android Keystore AES-GCM key | password encrypted with DPAPI (tied to the Windows account) |
 | Network change | default-network callback reloads sing-box | watchdog (`GetBestInterfaceEx`) restarts the core, max 4 times |
 | HTTP ping | `On/Off` radio; the probe goes through a loopback inbound so it really tests the tunnel | `On/Off` radio; the probe is an HTTP GET that enters the TUN |
-| Notifications | one ongoing notification (foreground service, type `systemExempted`) | tray icon + `Diagnosa` dialog |
+| Notifications | one ongoing notification (foreground service, type `systemExempted`) | tray icon + `Diagnosa` dialog | terminal output (`Ctrl+C` stops), browser UI with `socksctl gui` |
+| Interface name | `sb-tun` | `sb-tun` | Linux `sb-tun`, macOS `utunN` (kernel-assigned, custom names are not allowed) |
 
 Want plain HTTP/SOCKS proxying instead? Point that app straight at your SOCKS
 server. This client deliberately does not set a system proxy.
@@ -220,6 +245,11 @@ Rebuild it: **Actions -> Build Core -> Run workflow** with a `version` input.
 ## Build from source
 
 ```bash
+# CLI for Linux/macOS - from desktop/
+GOOS=linux   GOARCH=amd64 go build -o socksctl ./cmd/socksctl
+bash scripts/package-linux.sh      # .deb + tarballs into desktop/dist/
+bash scripts/package-macos.sh      # universal tarball (needs macOS for lipo)
+
 # Windows desktop - from desktop/
 bash scripts/fetch-core.sh          # core into embed/
 go vet ./... && go test -count=1 ./...
@@ -250,7 +280,7 @@ GitHub secrets used by the APK workflow: `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`,
 
 | What changed | Version | Tags |
 |---|---|---|
-| New feature / behaviour change | `1.3.0` -> `1.4.0` | `v<ver>` (APK), `desktop-v<ver>` (installer) |
+| New feature / behaviour change | `1.4.0` -> `1.5.0` | `v<ver>` (APK), `desktop-v<ver>` (Windows installer + Linux + macOS assets) |
 | Rebuild only (core bump, fix without new features) | `1.3.0.1`, `1.3.0.2`, ... | fourth segment increments |
 | Core only | unchanged | `core` |
 

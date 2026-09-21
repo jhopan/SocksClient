@@ -81,6 +81,31 @@ bash scripts/fetch-core.sh        # libbox.aar from the "core" release
   Do not create a fourth release; if one appears, the retention step is broken.
 - The `core` release is never deleted - the app builds fetch from it.
 
+## CLI for Linux and macOS (`socksctl`)
+
+- `desktop/cmd/socksctl/` is the same client for platforms where `lxn/walk` does
+  not exist: TUN through the shared config, no native GUI. Subcommands: `up`
+  (foreground, root), `gui` (browser UI on 127.0.0.1, root), `config`, `check`,
+  `version`. Stdlib only - do not add a GUI toolkit here.
+- Config comes from `internal/boxcfg` and the HTTP ping from `internal/ping`, both
+  shared with the Windows app. Any rule change belongs in `boxcfg`, never inlined
+  in the CLI.
+- Interface name: Linux/Windows `sb-tun`, macOS nothing (`TunOptions.AutoInterfaceName`)
+  because Darwin only allows `utunN`. `boxcfg.DefaultInterfaceName(goos)` encodes this.
+- Root is required for TUN on both platforms; `socksctl up/gui` check and print the
+  `sudo` line instead of failing obscurely.
+- Credentials must not appear on the command line (visible in `ps`): the CLI reads
+  `SOCKS_USER`/`SOCKS_PASS` from the environment, and the packaged systemd unit
+  uses `EnvironmentFile=/etc/socksclient.conf`.
+- Packaging: `desktop/scripts/package-linux.sh` (.deb amd64/arm64 + tarballs) and
+  `desktop/scripts/package-macos.sh` (one universal tarball via `lipo`). Both run in
+  the `linux`/`macos` jobs of `build-desktop-release.yml`, which attach their assets
+  to the same `desktop-v*` release - there is no fourth release. `ci-desktop.yml`
+  cross-compiles the CLI for linux/darwin on every push so a broken build tag is
+  caught before a tag push.
+- macOS binaries are unsigned/notarized-less: the README tells users about
+  `xattr -dr com.apple.quarantine`.
+
 ## Version policy
 
 - A change that adds a feature or alters behaviour bumps the **normal** version: `1.3.0` -> `1.4.0`.

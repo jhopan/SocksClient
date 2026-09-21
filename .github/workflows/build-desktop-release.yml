@@ -38,6 +38,83 @@ jobs:
       - name: Test
         run: go test -count=1 ./...
 
+  # Linux: satu .deb per arsitektur (amd64/arm64) plus tarball tanpa dpkg.
+  # Job ini jalan setelah `build` supaya release-nya sudah dibuat, lalu hanya
+  # menambahkan aset ke release yang sama.
+  linux:
+    needs: build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
+      - name: Build .deb + tarballs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash scripts/package-linux.sh
+
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: SocksClientLinux
+          path: |
+            desktop/dist/*.deb
+            desktop/dist/SocksClient-linux-*.tar.gz
+            desktop/dist/SHA256SUMS-linux.txt
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ github.ref_name }}" \
+            dist/*.deb dist/SocksClient-linux-*.tar.gz dist/SHA256SUMS-linux.txt --clobber
+
+  # macOS: satu tarball universal (lipo menyatukan Intel + Apple Silicon).
+  macos:
+    needs: build
+    runs-on: macos-14
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
+      - name: Build universal tarball
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash scripts/package-macos.sh
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: SocksClientMacOS
+          path: |
+            desktop/dist/SocksClient-macos-universal-*.tar.gz
+            desktop/dist/SHA256SUMS-macos.txt
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ github.ref_name }}" \
+            dist/SocksClient-macos-universal-*.tar.gz dist/SHA256SUMS-macos.txt --clobber
+
   build:
     needs: test
     runs-on: windows-latest
@@ -140,9 +217,14 @@ jobs:
             stays reachable.
 
             ### Download
-            | File | What it is |
-            |------|------------|
-            | `SocksClientDesktop_Setup_v${{ env.VERSION }}.exe` | installer: app + sing-box core, Start-menu entry, uninstaller |
+            | File | Platform | What it is |
+            |------|----------|------------|
+            | `SocksClientDesktop_Setup_v${{ env.VERSION }}.exe` | Windows 10/11 64-bit | installer: app + sing-box core, Start-menu entry, uninstaller |
+            | `socksclient_${{ env.VERSION }}_amd64.deb` | Linux x86_64 | Debian/Ubuntu/Mint package: `socksctl` CLI + browser UI, core, systemd unit |
+            | `socksclient_${{ env.VERSION }}_arm64.deb` | Linux arm64 | same, for ARM boards and ARM VPS |
+            | `SocksClient-linux-amd64-${{ env.VERSION }}.tar.gz` | Linux x86_64 | no-dpkg tarball with `install.sh` |
+            | `SocksClient-linux-arm64-${{ env.VERSION }}.tar.gz` | Linux arm64 | no-dpkg tarball with `install.sh` |
+            | `SocksClient-macos-universal-${{ env.VERSION }}.tar.gz` | macOS Intel + Apple Silicon | universal binary, `install.sh` and a double-clickable launcher |
 
             ### What is in this build
             - TUN mode only, on a minimal sing-box core 1.14.1; the manifest requests Administrator, so Windows asks for elevation at launch
@@ -156,19 +238,56 @@ jobs:
             - No proxy mode: the app never sets a system proxy, never listens on a local port, never touches WinINet / environment variables / WinHTTP
             - Runtime files (`settings.json`, `config.json`, `sing-box.log`) live in `%LOCALAPPDATA%\SocksClientDesktop`; the core sits next to the exe
 
-            ### Install
+            ### Install - Windows
             1. Download the installer.
             2. Run it (elevation is required to write into Program Files).
             3. Launch, enter the server **IP** and port (plus user/password if needed), press **Connect Socks VPN**.
 
+            ### Install - Linux
+            ```bash
+            sudo dpkg -i socksclient_${{ env.VERSION }}_amd64.deb
+            sudo socksctl up  -host 10.0.0.1 -port 1080        # foreground, Ctrl+C to stop
+            sudo socksctl gui -host 10.0.0.1 -port 1080        # same tunnel, UI in the browser
+            sudo socksctl check -host 10.0.0.1 -port 1080      # validate against the core
+            ```
+            The package installs `/usr/bin/socksctl`, the core in
+            `/usr/lib/socksclient/sing-box`, a systemd unit (not enabled - copy
+            `/usr/share/doc/socksclient/socksclient.conf.example` to
+            `/etc/socksclient.conf` first) and a desktop entry. Credentials stay out of
+            the command line: the CLI reads `SOCKS_USER` / `SOCKS_PASS` from the
+            environment. The tarball is for systems without dpkg:
+            `tar -xzf ... && sudo ./socksclient/install.sh`.
+
+            ### Install - macOS
+            ```bash
+            tar -xzf SocksClient-macos-universal-${{ env.VERSION }}.tar.gz
+            cd SocksClient && ./install.sh          # copies into /usr/local
+            sudo socksctl up -host 10.0.0.1 -port 1080
+            ```
+            Or double-click `SocksClient.command` inside the archive: it asks for the
+            admin password and opens the browser UI. The binary is **not notarized**
+            (no Apple Developer ID), so if Gatekeeper complains run
+            `xattr -dr com.apple.quarantine SocksClient` once, or right-click and Open.
+
+            Linux and macOS share the same engine and rules as Windows: minimal
+            sing-box core, gvisor TUN stack, MTU 1400, `strict_route` with LAN
+            exclusions, DNS answered through the SOCKS server (1.1.1.1, 8.8.8.8 as the
+            documented backup), and the same HTTP ping endpoint
+            (`http://www.gstatic.com/generate_204`). The server address must be an IP
+            literal. Only difference: macOS gets the interface name assigned by the
+            kernel (`utunN`), because it does not allow custom names.
+
             ### Verify the download
             ```bash
-            sha256sum -c SHA256SUMS.txt
+            sha256sum -c SHA256SUMS.txt          # Windows asset
+            sha256sum -c SHA256SUMS-linux.txt    # Linux assets
+            sha256sum -c SHA256SUMS-macos.txt    # macOS asset
             ```
 
             ### Requirements
-            - Windows 10 or 11 (64-bit)
-            - Administrator (the app requests it - TUN needs it)
+            - Windows 10/11 64-bit, or Linux x86_64/arm64 (Debian/Ubuntu family for the
+              .deb; any distro for the tarball), or macOS 11+ on Intel or Apple Silicon
+            - Administrator/root: TUN needs it on every platform
             - A reachable SOCKS5 server that accepts TCP and (optionally) UDP associate
 
             ### If something goes wrong

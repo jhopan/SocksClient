@@ -183,3 +183,27 @@ func TestTunLeakGuards(t *testing.T) {
 		}
 	}
 }
+
+// macOS hanya mengizinkan utunN: field interface_name harus benar-benar absen.
+func TestAutoInterfaceNameOmitsField(t *testing.T) {
+	inbounds := Tun("1.2.3.4", 1080, "", "", TunOptions{AutoInterfaceName: true})["inbounds"].([]map[string]interface{})
+	if len(inbounds) != 1 {
+		t.Fatalf("jumlah inbound = %d", len(inbounds))
+	}
+	if _, ada := inbounds[0]["interface_name"]; ada {
+		t.Fatal("interface_name masih dikirim padahal harusnya biar core memilih (macOS)")
+	}
+	if inbounds[0]["stack"] != StackGVisor {
+		t.Fatalf("stack = %v", inbounds[0]["stack"])
+	}
+
+	// Windows/Linux tetap memakai nama sendiri supaya selftest dan Diagnosa
+	// menyebut adapter yang sama.
+	normal := Tun("1.2.3.4", 1080, "", "", TunOptions{})["inbounds"].([]map[string]interface{})
+	if normal[0]["interface_name"] != "sb-tun" {
+		t.Fatalf("interface_name = %v", normal[0]["interface_name"])
+	}
+	if DefaultInterfaceName("darwin") != "" || DefaultInterfaceName("linux") != "sb-tun" || DefaultInterfaceName("windows") != "sb-tun" {
+		t.Fatal("DefaultInterfaceName salah")
+	}
+}

@@ -40,5 +40,18 @@ jobs:
       - name: Test
         run: go test -count=1 ./...
 
+      # CLI Linux/macOS: pastikan tetap bisa dikompilasi untuk setiap target yang
+      # dirilis, termasuk build tag root_unix.go.
+      - name: Cross-compile socksctl (linux, macOS)
+        working-directory: desktop
+        run: |
+          out="${RUNNER_TEMP:-/tmp}/socksctl-cross"
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
+            GOOS="${target%%/*}" GOARCH="${target##*/}" CGO_ENABLED=0 \
+              go build -o "$out" ./cmd/socksctl
+            echo "ok $target ($(stat -c%s "$out" 2>/dev/null || stat -f%z "$out") bytes)"
+            rm -f "$out"
+          done
+
       - name: Build
         run: go build -ldflags="-s -w -H windowsgui" -o socks-client.exe .

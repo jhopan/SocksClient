@@ -22,6 +22,7 @@ import (
 	"github.com/lxn/win"
 
 	"socks-client-desktop/internal/boxcfg"
+	"socks-client-desktop/internal/ping"
 )
 
 // The core is deliberately NOT embedded: it is built by the "Build Core"
@@ -37,7 +38,7 @@ const (
 	maxRestarts = 4
 
 	appName      = "Socks Client Desktop"
-	appVersion   = "1.4.0.2"
+	appVersion   = "1.5.0"
 	lockFileName = "socks_client_desktop.lock"
 )
 
@@ -76,7 +77,7 @@ type App struct {
 	// Disconnect atau keluar aplikasi.
 	pingOnRB, pingOffRB *walk.RadioButton
 	pingCancel          context.CancelFunc
-	lastPing            PingResult
+	lastPing            ping.Result
 	connectedText       string
 }
 
@@ -526,7 +527,7 @@ func (a *App) startPing() {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	a.pingCancel = cancel
-	go watchPing(ctx, newPingClient(), pingTargets, defaultPingInterval, pingRetryInterval, func(r PingResult) {
+	go ping.Watch(ctx, ping.NewClient(), ping.Targets, ping.DefaultInterval, ping.RetryInterval, func(r ping.Result) {
 		a.lastPing = r
 		a.refreshStatus()
 	})
@@ -547,7 +548,7 @@ func (a *App) refreshStatus() {
 	text := a.connectedText
 	if a.connected && text != "" {
 		if a.pingRequested() {
-			text += "  -  " + a.lastPing.summary()
+			text += "  -  " + a.lastPing.Summary()
 		}
 		a.mw.Synchronize(func() { a.statusLabel.SetText(text) })
 	}
@@ -794,7 +795,7 @@ func (a *App) killProcess() {
 	// (doConnect / restartCore) setelah core hidup lagi.
 	a.stopPing()
 	a.connectedText = ""
-	a.lastPing = PingResult{}
+	a.lastPing = ping.Result{}
 }
 
 // relaunchElevated restarts the app with a UAC prompt for mode TUN. The lock
