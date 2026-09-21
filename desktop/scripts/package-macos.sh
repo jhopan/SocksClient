@@ -90,4 +90,9 @@ EOS
 echo "isi arsip:"
 tar -tzf "$OUT/SocksClient-macos-universal-${VERSION}.tar.gz" | head -6
 echo "== checksum"
-(cd "$OUT" && sha256sum SocksClient-macos-universal-*.tar.gz > SHA256SUMS-macos.txt && cat SHA256SUMS-macos.txt)
+# macOS tidak punya sha256sum (BSD: shasum -a 256). Format keluarannya sama,
+# jadi file ini tetap bisa diverifikasi dengan `sha256sum -c` di Linux/Windows.
+sha() {
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$@"; else shasum -a 256 "$@"; fi
+}
+(cd "$OUT" && sha SocksClient-macos-universal-*.tar.gz > SHA256SUMS-macos.txt && cat SHA256SUMS-macos.txt)
