@@ -36,8 +36,10 @@ sing-box.log
 .lock
 
 # === Root ===
-# Android auto-generated
-app/
+# Android build outputs live under android/app/build (already covered above).
+# NOTE: jangan pernah menulis pola telanjang "app/" di sini - dia cocok dengan
+# SETIAP folder bernama app, termasuk android/app/** sehingga file Java baru
+# ikut terabaikan tanpa terlihat (pernah terjadi pada SecurePrefs.java).
 
 # Recompile tools (not part of app)
 sing-box-recompile/

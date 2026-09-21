@@ -90,7 +90,7 @@ jobs:
 
       - name: Write SHA256SUMS
         run: |
-          cd desktop/installer_output
+          cd installer_output
           sha256sum *.exe > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
