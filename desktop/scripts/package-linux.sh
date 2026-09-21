@@ -59,7 +59,9 @@ EnvironmentFile=-/etc/socksclient.conf
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/socksctl up -host ${SOCKS_HOST} -port ${SOCKS_PORT} -mtu ${SOCKS_MTU}
+# -mtu sengaja tidak dipakai di sini: default CLI sudah 1400 (sama dengan klien
+# lain). Kalau perlu diubah, tambahkan mis. -mtu 1350 di baris ExecStart.
+ExecStart=/usr/bin/socksctl up -host ${SOCKS_HOST} -port ${SOCKS_PORT}
 Restart=on-failure
 RestartSec=5
 
@@ -71,7 +73,8 @@ EOS
 # Salin ke /etc/socksclient.conf lalu isi. Dipakai systemd unit socksclient.
 SOCKS_HOST=10.0.0.1
 SOCKS_PORT=1080
-SOCKS_MTU=1400
+# MTU default 1400 (sama dengan klien Windows/Android); tidak perlu diisi kecuali
+# jaringanmu butuh lebih kecil.
 # opsional, kalau server memerlukan autentikasi
 #SOCKS_USER=user
 #SOCKS_PASS=password
