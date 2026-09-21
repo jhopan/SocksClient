@@ -60,12 +60,8 @@ type App struct {
 	userEdit      *walk.LineEdit
 	passEdit      *walk.LineEdit
 	localPortEdit *walk.LineEdit
-	mtuEdit       *walk.LineEdit
 	tunRB         *walk.RadioButton
 	proxyRB       *walk.RadioButton
-	stackSystemRB *walk.RadioButton
-	stackMixedRB  *walk.RadioButton
-	stackGvisorRB *walk.RadioButton
 	sysProxyCB    *walk.CheckBox
 	connectBtn    *walk.PushButton
 	disconnBtn    *walk.PushButton
@@ -86,8 +82,6 @@ type Settings struct {
 	Mode        string         `json:"mode"`
 	LocalPort   int            `json:"local_port"`
 	SystemProxy bool           `json:"system_proxy"`
-	Stack       string         `json:"tun_stack"`
-	MTU         int            `json:"tun_mtu"`
 	ProxyBackup *ProxyBackup   `json:"proxy_backup,omitempty"`
 	EnvBackup   *EnvBackup     `json:"env_backup,omitempty"`
 	WinHTTP     *WinHTTPBackup `json:"winhttp_backup,omitempty"`
@@ -225,14 +219,6 @@ func (a *App) normalizeSettings() {
 	if a.settings.Mode != modeProxy {
 		a.settings.Mode = modeTun
 	}
-	switch a.settings.Stack {
-	case boxcfg.StackGVisor, boxcfg.StackMixed, boxcfg.StackSystem:
-	default:
-		a.settings.Stack = boxcfg.StackGVisor
-	}
-	if a.settings.MTU != 0 && (a.settings.MTU < 576 || a.settings.MTU > 9000) {
-		a.settings.MTU = 0
-	}
 	if a.settings.Port < 1 || a.settings.Port > 65535 {
 		a.settings.Port = 1080
 	}
@@ -249,8 +235,8 @@ func (a *App) saveSettings() {
 // --- UI -----------------------------------------------
 
 func (a *App) runUI() {
-	var hostEdit, portEdit, userEdit, passEdit, localPortEdit, mtuEdit *walk.LineEdit
-	var tunRB, proxyRB, stackSystemRB, stackGvisorRB, stackMixedRB *walk.RadioButton
+	var hostEdit, portEdit, userEdit, passEdit, localPortEdit *walk.LineEdit
+	var tunRB, proxyRB *walk.RadioButton
 	var sysProxyCB, trayCB *walk.CheckBox
 	var connectBtn, disconnBtn *walk.PushButton
 	var statusLabel *walk.Label
@@ -297,18 +283,8 @@ func (a *App) runUI() {
 				Composite{Layout: Grid{Columns: 2, Spacing: 6}, Children: []Widget{
 					Label{Text: "Proxy port:", Font: Font{Family: "Segoe UI", PointSize: 9}},
 					LineEdit{AssignTo: &localPortEdit, Text: strconv.Itoa(a.settings.LocalPort), Font: Font{Family: "Segoe UI", PointSize: 9}},
-					Label{Text: "TUN MTU:", Font: Font{Family: "Segoe UI", PointSize: 9}},
-					LineEdit{AssignTo: &mtuEdit, Text: strconv.Itoa(a.tunMTU()), Font: Font{Family: "Segoe UI", PointSize: 9}},
 				}},
-				Composite{Layout: HBox{Spacing: 10}, Children: []Widget{
-					Label{Text: "TUN stack:", Font: Font{Family: "Segoe UI", PointSize: 9}},
-					RadioButton{AssignTo: &stackGvisorRB, Text: "gvisor", Font: Font{Family: "Segoe UI", PointSize: 9},
-						OnClicked: func() { a.setStack(boxcfg.StackGVisor) }},
-					RadioButton{AssignTo: &stackMixedRB, Text: "mixed", Font: Font{Family: "Segoe UI", PointSize: 9},
-						OnClicked: func() { a.setStack(boxcfg.StackMixed) }},
-					RadioButton{AssignTo: &stackSystemRB, Text: "system", Font: Font{Family: "Segoe UI", PointSize: 9},
-						OnClicked: func() { a.setStack(boxcfg.StackSystem) }},
-				}},
+				Label{Text: "TUN: stack gvisor, MTU 1400 (dipatok biar stabil)", Font: Font{Family: "Segoe UI", PointSize: 9, Italic: true}},
 				CheckBox{AssignTo: &sysProxyCB, Text: "Set proxy Windows + env var app (mode Proxy)",
 					Checked: a.settings.SystemProxy, Font: Font{Family: "Segoe UI", PointSize: 9},
 					OnCheckedChanged: func() { a.settings.SystemProxy = sysProxyCB.Checked() }},
@@ -347,9 +323,7 @@ func (a *App) runUI() {
 
 	a.hostEdit, a.portEdit, a.userEdit, a.passEdit = hostEdit, portEdit, userEdit, passEdit
 	a.localPortEdit = localPortEdit
-	a.mtuEdit = mtuEdit
 	a.tunRB, a.proxyRB = tunRB, proxyRB
-	a.stackSystemRB, a.stackGvisorRB, a.stackMixedRB = stackSystemRB, stackGvisorRB, stackMixedRB
 	a.sysProxyCB = sysProxyCB
 	a.connectBtn, a.disconnBtn = connectBtn, disconnBtn
 	a.statusLabel = statusLabel
@@ -359,14 +333,6 @@ func (a *App) runUI() {
 		proxyRB.SetChecked(true)
 	} else {
 		tunRB.SetChecked(true)
-	}
-	switch a.settings.Stack {
-	case boxcfg.StackMixed:
-		stackMixedRB.SetChecked(true)
-	case boxcfg.StackSystem:
-		stackSystemRB.SetChecked(true)
-	default:
-		stackGvisorRB.SetChecked(true)
 	}
 	a.applyModeToUI()
 
@@ -407,61 +373,14 @@ func (a *App) currentMode() string {
 	return modeTun
 }
 
-func (a *App) currentStack() string {
-	switch {
-	case a.stackGvisorRB != nil && a.stackGvisorRB.Checked():
-		return boxcfg.StackGVisor
-	case a.stackMixedRB != nil && a.stackMixedRB.Checked():
-		return boxcfg.StackMixed
-	default:
-		return boxcfg.StackSystem
-	}
-}
-
-func (a *App) tunMTU() int {
-	if a.settings.MTU >= 576 && a.settings.MTU <= 9000 {
-		return a.settings.MTU
-	}
-	return boxcfg.DefaultTunMTU
-}
-
-func (a *App) setStack(stack string) {
-	if a.stackSystemRB == nil || a.stackGvisorRB == nil || a.stackMixedRB == nil {
-		return
-	}
-	switch stack {
-	case boxcfg.StackSystem:
-		a.stackSystemRB.SetChecked(true)
-	case boxcfg.StackMixed:
-		a.stackMixedRB.SetChecked(true)
-	default:
-		a.stackGvisorRB.SetChecked(true)
-	}
-	a.settings.Stack = a.currentStack()
-	a.saveSettings()
-}
-
 func (a *App) applyModeToUI() {
 	isProxy := a.currentMode() == modeProxy
-	isTun := !isProxy
 	a.settings.Mode = a.currentMode()
 	if a.localPortEdit != nil {
 		a.localPortEdit.SetEnabled(isProxy)
 	}
 	if a.sysProxyCB != nil {
 		a.sysProxyCB.SetEnabled(isProxy)
-	}
-	if a.mtuEdit != nil {
-		a.mtuEdit.SetEnabled(isTun)
-	}
-	if a.stackSystemRB != nil {
-		a.stackSystemRB.SetEnabled(isTun)
-	}
-	if a.stackGvisorRB != nil {
-		a.stackGvisorRB.SetEnabled(isTun)
-	}
-	if a.stackMixedRB != nil {
-		a.stackMixedRB.SetEnabled(isTun)
 	}
 }
 
@@ -544,12 +463,7 @@ func (a *App) doConnect() {
 	}
 
 	mode := a.currentMode()
-	mtu := 0
-	if mode == modeTun && a.mtuEdit != nil {
-		if parsed, err := strconv.Atoi(strings.TrimSpace(a.mtuEdit.Text())); err == nil && parsed >= 576 && parsed <= 9000 {
-			mtu = parsed
-		}
-	}
+
 	localPort := a.settings.LocalPort
 	if mode == modeProxy {
 		localPort, err = strconv.Atoi(strings.TrimSpace(a.localPortEdit.Text()))
@@ -583,7 +497,6 @@ func (a *App) doConnect() {
 		Host: host, Port: portNum, User: user, Pass: pass,
 		Tray: a.trayCB.Checked(), Mode: mode,
 		LocalPort: localPort, SystemProxy: a.sysProxyCB.Checked(),
-		Stack: a.currentStack(), MTU: mtu,
 		ProxyBackup: a.settings.ProxyBackup,
 		EnvBackup:   a.settings.EnvBackup,
 		WinHTTP:     a.settings.WinHTTP,
@@ -650,7 +563,7 @@ func (a *App) startCore(mode, host string, port int, user, pass string, localPor
 		config = boxcfg.Proxy(host, port, user, pass, boxcfg.ProxyOptions{LocalPort: localPort})
 		proxyAddr = "127.0.0.1:" + strconv.Itoa(localPort)
 	} else {
-		config = boxcfg.Tun(host, port, user, pass, boxcfg.TunOptions{Stack: a.settings.Stack, MTU: a.settings.MTU})
+		config = boxcfg.Tun(host, port, user, pass, boxcfg.TunOptions{Stack: boxcfg.StackGVisor})
 	}
 
 	configPath := filepath.Join(a.runDir, "config.json")

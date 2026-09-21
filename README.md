@@ -28,10 +28,10 @@ Available for **Android** and **Windows Desktop**.
 
 ### TUN defaults (and when to change them)
 
-| Setting | Default | Why | Change when |
+| Setting | Value | Why | Change when |
 |---|---|---|---|
-| TUN stack | `gvisor` | translates L3->L4 entirely in userspace: not affected by flaky NIC drivers / WFP filters, which is the usual "TUN starts but nothing passes" cause | `mixed` (system TCP + gvisor UDP) for lower CPU on a good machine; `system` for the lowest CPU on a fast link |
-| MTU | `1400` | hotspot paths often carry a smaller MTU; oversized packets stall or fragment (PMTU blackhole). 1400 leaves headroom for SOCKS overhead | raise to 9000 on a clean LAN for slightly better bulk throughput |
+| TUN stack | `gvisor` (pinned) | translates L3->L4 entirely in userspace: not affected by flaky NIC drivers / WFP filters, which is the usual "TUN starts but nothing passes" cause. `mixed`/`system` stay available in `boxcfg` for tooling, but the app no longer exposes them | - |
+| MTU | `1400` (pinned) | hotspot paths often carry a smaller MTU; oversized packets stall or fragment (PMTU blackhole). 1400 leaves headroom for SOCKS overhead | change `DefaultTunMTU` in `boxcfg` and rebuild |
 | DNS strategy | `ipv4_only` | the SOCKS hotspot path is IPv4; v6 queries would have nowhere sane to go | only if the server gains real IPv6 routing |
 
 Apps that keep their own network stack (Steam, most games, torrent clients) ignore all
