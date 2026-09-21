@@ -66,6 +66,12 @@
       },
       {
         "ip_cidr": [
+          "::/0"
+        ],
+        "action": "reject"
+      },
+      {
+        "ip_cidr": [
           "10.12.132.225/32"
         ],
         "outbound": "direct"

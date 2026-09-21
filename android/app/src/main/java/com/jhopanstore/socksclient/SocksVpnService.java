@@ -31,14 +31,12 @@ import io.nekohasekai.libbox.ShellSession;
 import io.nekohasekai.libbox.RoutePrefix;
 import io.nekohasekai.libbox.RoutePrefixIterator;
 import io.nekohasekai.libbox.SetupOptions;
-import io.nekohasekai.libbox.StringBox;
 import io.nekohasekai.libbox.StringIterator;
 import io.nekohasekai.libbox.SystemProxyStatus;
 import io.nekohasekai.libbox.TunOptions;
 import io.nekohasekai.libbox.WIFIState;
 
 import java.net.Inet4Address;
-import java.net.InetAddress;
 import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.List;
@@ -277,34 +275,9 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
     }
 
     /** Toggle the traffic counter on/off at runtime. Persists across reconnects. */
-    public void setTrafficCounterEnabled(boolean enabled) {
-        trafficCounterEnabled = enabled;
-        SharedPreferences sp = getSharedPreferences(PREFS, MODE_PRIVATE);
-        sp.edit().putBoolean(KEY_TRAFFIC_ENABLED, enabled).apply();
-        if (enabled && running) {
-            startTrafficMonitor();
-        } else {
-            stopTrafficMonitor();
-        }
-        // Refresh notification immediately
-        if (running) {
-            notifyStatus(enabled
-                    ? "Connected ✓ (traffic on)"
-                    : "Connected ✓");
-        }
-    }
 
-    public boolean isTrafficCounterEnabled() {
-        return trafficCounterEnabled;
-    }
 
-    public long getUploadBytes() {
-        return uploadBytes.get();
-    }
 
-    public long getDownloadBytes() {
-        return downloadBytes.get();
-    }
 
     private void resetTrafficCounters() {
         uploadBytes.set(0);
@@ -432,56 +405,6 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
         return String.format(Locale.US, "%.2f GB", bytes / (1024.0 * 1024 * 1024));
     }
 
-    // ──────────────────────────────────────────────
-    // Network Interface Detection
-    // ──────────────────────────────────────────────
-
-    private String detectActiveInterface() {
-        try {
-            Enumeration<java.net.NetworkInterface> nifs = java.net.NetworkInterface.getNetworkInterfaces();
-            List<String> candidates = new ArrayList<>();
-
-            while (nifs != null && nifs.hasMoreElements()) {
-                java.net.NetworkInterface nif = nifs.nextElement();
-                try {
-                    if (!nif.isUp() || nif.isLoopback() || nif.isVirtual() || nif.isPointToPoint()) continue;
-
-                    // Cek apakah punya IPv4 address (artinya benar-benar connected)
-                    boolean hasIPv4 = false;
-                    for (java.net.InterfaceAddress addr : nif.getInterfaceAddresses()) {
-                        if (addr.getAddress() instanceof Inet4Address) {
-                            hasIPv4 = true;
-                            break;
-                        }
-                    }
-                    if (!hasIPv4) continue;
-
-                    String name = nif.getName();
-                    candidates.add(name);
-                    logI("found interface: " + name + " (" + nif.getDisplayName() + ")");
-                } catch (Exception e) {
-                    // Log.w(TAG, "skip interface check", e);
-                }
-            }
-
-            // Prioritas: wlan (WiFi/hotspot) > eth > rmnet/rndis/usb (mobile/tether) > lainnya
-            for (String name : candidates) {
-                if (name.startsWith("wlan")) return name;
-            }
-            for (String name : candidates) {
-                if (name.startsWith("eth")) return name;
-            }
-            for (String name : candidates) {
-                if (name.startsWith("rmnet") || name.startsWith("rndis") || name.startsWith("usb"))
-                    return name;
-            }
-            if (!candidates.isEmpty()) return candidates.get(0);
-
-        } catch (Exception e) {
-            // Log.e(TAG, "detectActiveInterface failed", e);
-        }
-        return "wlan0"; // default fallback untuk WiFi hotspot
-    }
 
     // ──────────────────────────────────────────────
     // Sing-box Config Builder
@@ -569,6 +492,11 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
         // Sebelumnya memakai block port-53 yang khas sing-box 1.10; "action"
         // hijack-dns tersedia sejak 1.11 dan core kita 1.14.
         sb.append("{\"protocol\":\"dns\",\"action\":\"hijack-dns\"},");
+
+        // IPv6: the route still sends ::/0 into the tunnel (that is what stops a
+        // v6 leak), but DNS is ipv4_only so no AAAA ever resolves. Reject v6
+        // here so apps fail instantly instead of hanging on a dead socket.
+        sb.append("{\"ip_cidr\":[\"::/0\"],\"action\":\"reject\"},");
 
         // Server SOCKS -> direct (anti routing loop)
         if (isIpLiteral(host)) {

@@ -20,10 +20,8 @@ import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
-import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
-import android.widget.Switch;
 import android.widget.TextView;
 
 public class MainActivity extends Activity {
@@ -35,14 +33,10 @@ public class MainActivity extends Activity {
     private static final int GREEN = Color.rgb(28, 184, 98);
     private static final int RED = Color.rgb(220, 60, 60);
     private static final int GRAY = Color.rgb(96, 102, 114);
-    private static final int ACCENT = Color.rgb(56, 132, 244);
     private static final int REQ_VPN = 300;
     private static final String STATUS_PREFS = "socks_client_status";
     private static final String KEY_CONNECTED = "connected";
     private static final String KEY_STATUS = "status";
-    private static final String KEY_TRAFFIC_ENABLED = "traffic_counter_enabled";
-    private static final String KEY_UPLOAD_BYTES = "upload_bytes";
-    private static final String KEY_DOWNLOAD_BYTES = "download_bytes";
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private SharedPreferences prefs;
@@ -56,10 +50,6 @@ public class MainActivity extends Activity {
     // private Button disconnectButton; // merged into connectButton
 
     // ── Traffic counter UI ──
-    private Switch trafficSwitch;
-    private TextView uploadText;
-    private TextView downloadText;
-    private LinearLayout trafficCard;
 
     private final Runnable ticker = new Runnable() {
         @Override

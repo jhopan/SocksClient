@@ -65,6 +65,12 @@
         "action": "hijack-dns"
       },
       {
+        "ip_cidr": [
+          "::/0"
+        ],
+        "action": "reject"
+      },
+      {
         "domain": [
           "vpn.example.com"
         ],
