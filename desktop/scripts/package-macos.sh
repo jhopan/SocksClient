@@ -84,6 +84,10 @@ Catatan penting
 - Log core muncul di terminal; hentikan dengan Ctrl+C.
 EOS
 
-(cd "$OUT" && tar -czf "SocksClient-macos-universal-${VERSION}.tar.gz" "macos-$VERSION/SocksClient" --transform "s|macos-${VERSION}/||")
+# Dibuat dari dalam folder paket (BSD tar macOS tidak perlu --transform, dan
+# opsinya harus sebelum operand - pelajaran dari run pertama).
+(cd "$pkg" && tar -czf "$OUT/SocksClient-macos-universal-${VERSION}.tar.gz" SocksClient)
+echo "isi arsip:"
+tar -tzf "$OUT/SocksClient-macos-universal-${VERSION}.tar.gz" | head -6
 echo "== checksum"
 (cd "$OUT" && sha256sum SocksClient-macos-universal-*.tar.gz > SHA256SUMS-macos.txt && cat SHA256SUMS-macos.txt)
