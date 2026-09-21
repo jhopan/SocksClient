@@ -171,6 +171,15 @@ public class MainActivity extends Activity {
                 .putString("pass", passInput.getText().toString())
                 .apply();
 
+        // P8: hanya IP literal. Hostname memaksa sing-box melakukan bootstrap DNS
+        // di dalam proses app - dan proses app dikecualikan dari VPN, jadi query
+        // itu keluar lewat jaringan bawah (bocor) atau gagal total.
+        if (!isIpLiteral(hostInput.getText().toString().trim())) {
+            statusText.setText("Status: Host harus IP (contoh 10.12.132.225)");
+            connectButton.setEnabled(true);
+            return;
+        }
+
         new Thread(() -> {
             try {
                 Intent vpnIntent = VpnService.prepare(MainActivity.this);
@@ -197,6 +206,14 @@ public class MainActivity extends Activity {
                 });
             }
         }).start();
+    }
+
+    /** Bootstrap dan rule anti-loop aman hanya kalau host berupa IP literal. */
+    private static boolean isIpLiteral(String host) {
+        if (host == null) return false;
+        String h = host.trim();
+        if (h.matches("^\\d{1,3}(\\.\\d{1,3}){3}$")) return true;
+        return h.contains(":") && h.matches("^[0-9a-fA-F:]+$");
     }
 
     private void startVpn() {
@@ -279,7 +296,9 @@ public class MainActivity extends Activity {
     private boolean isVpnServiceAlive() {
         SharedPreferences sp = getSharedPreferences(STATUS_PREFS, MODE_PRIVATE);
         long lastSeen = sp.getLong("last_seen", 0);
-        if (lastSeen > 0 && (System.currentTimeMillis() - lastSeen) < 8000) {
+        // Service menulis heartbeat tiap 10 detik (SocksVpnService.HEARTBEAT_MS), jadi jendela
+        // ini harus >= 3x interval supaya Doze/layar mati sesaat tidak dibaca sebagai service mati.
+        if (lastSeen > 0 && (System.currentTimeMillis() - lastSeen) < 45000) {
             return true;
         }
         ActivityManager am = (ActivityManager) getSystemService(ACTIVITY_SERVICE);

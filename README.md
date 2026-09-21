@@ -38,7 +38,7 @@ and does not touch WinINet, environment variables or WinHTTP.
 |---|---|---|---|
 | TUN stack | `gvisor` (pinned) | translates L3->L4 entirely in userspace: not affected by flaky NIC drivers / WFP filters, which is the usual "TUN starts but nothing passes" cause. `mixed`/`system` stay available in `boxcfg` for tooling, but the app no longer exposes them | - |
 | MTU | `1400` (pinned) | hotspot paths often carry a smaller MTU; oversized packets stall or fragment (PMTU blackhole). 1400 leaves headroom for SOCKS overhead | change `DefaultTunMTU` in `boxcfg` and rebuild |
-| DNS strategy | `ipv4_only` | the SOCKS hotspot path is IPv4; v6 queries would have nowhere sane to go | only if the server gains real IPv6 routing |
+| DNS | `1.1.1.1` via SOCKS, `8.8.8.8` as the backup entry, strategy `ipv4_only` | DNS can only travel the tunnel; v6 queries have nowhere sane to go | promote `8.8.8.8` by editing `final` if the primary is blocked on your network |
 
 Apps that keep their own network stack (Steam, most games, torrent clients) ignore all
 own network stack still go direct by design.

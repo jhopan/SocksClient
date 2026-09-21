@@ -4,6 +4,7 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -30,6 +31,10 @@ import (
 var embeddedFiles embed.FS
 
 const (
+	// maxRestarts bounds the watchdog: a link that keeps flapping should end in
+	// a clear status message, not an endless restart loop.
+	maxRestarts = 4
+
 	appName      = "Socks Client Desktop"
 	appVersion   = "1.2.0"
 	lockFileName = "socks_client_desktop.lock"
@@ -59,6 +64,9 @@ type App struct {
 	trayEnabled   bool
 	trayStarted   bool
 	windowVisible bool
+
+	watchStop chan struct{}
+	restarts  int
 }
 
 type Settings struct {
@@ -310,6 +318,7 @@ func (a *App) runUI() {
 }
 
 func (a *App) exitApp() {
+	a.stopWatchdog()
 	a.killProcess()
 	systray.Quit()
 	a.trayEnabled = false
@@ -369,6 +378,17 @@ func (a *App) doConnect() {
 		walk.MsgBox(a.mw, "Error", "Host cannot be empty", walk.MsgBoxIconWarning)
 		return
 	}
+	if net.ParseIP(host) == nil {
+		// A hostname would make sing-box bootstrap-resolve it through the OS
+		// resolver, which in TUN mode goes back into our own tunnel - or worse,
+		// leaks the query before the tunnel is up. IP only, as agreed.
+		walk.MsgBox(a.mw, "Host harus IP",
+			"Masukkan alamat IP server SOCKS, contoh 10.12.132.225.\n\n"+
+				"Hostname tidak didukung karena resolusi bootstrap-nya terjadi di luar tunnel.",
+			walk.MsgBoxIconWarning)
+		return
+	}
+
 	portNum, err := strconv.Atoi(port)
 	if err != nil || portNum < 1 || portNum > 65535 {
 		walk.MsgBox(a.mw, "Error", "Invalid port", walk.MsgBoxIconWarning)
@@ -409,9 +429,13 @@ func (a *App) doConnect() {
 				return
 			}
 			a.connected = true
+			a.mu.Lock()
+			a.restarts = 0
+			a.mu.Unlock()
 			a.statusLabel.SetText(a.connectedStatus(host, portNum))
 			a.connectBtn.SetEnabled(false)
 			a.disconnBtn.SetEnabled(true)
+			a.startWatchdog(host)
 		})
 	}()
 }
@@ -523,7 +547,109 @@ func tailFile(path string, max int) string {
 	return strings.TrimSpace(string(data))
 }
 
+// watchNetwork restarts the core when the machine changes networks.
+//
+// The hotspot can drop and come back on a different interface while sing-box
+// keeps running against a dead route - the classic "still says Connected but
+// nothing loads". GetBestInterfaceEx answers without sending a single packet, so
+// the check works even under strict_route (where a probe from this process would
+// be blocked by the firewall).
+//
+// probe and onChange are parameters so the restart path is testable without a
+// GUI or a real network change.
+func watchNetwork(host string, interval time.Duration, probe func(net.IP) (uint32, error), stop <-chan struct{}, onChange func(string)) {
+	ip := net.ParseIP(host)
+	if ip == nil || ip.To4() == nil {
+		// Hostname or IPv6: no interface index to compare, the watchdog stays out
+		// of the way. Hostname hosts are rejected before connecting anyway.
+		return
+	}
+	startIndex, err := probe(ip)
+	if err != nil {
+		return
+	}
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-ticker.C:
+		}
+		index, err := probe(ip)
+		if err != nil {
+			continue
+		}
+		if index != startIndex {
+			onChange(fmt.Sprintf("interface %d -> %d", startIndex, index))
+			return
+		}
+	}
+}
+
+const watchdogInterval = 8 * time.Second
+
+func (a *App) startWatchdog(host string) {
+	a.stopWatchdog()
+	stop := make(chan struct{})
+	a.mu.Lock()
+	a.watchStop = stop
+	a.mu.Unlock()
+
+	go watchNetwork(host, watchdogInterval, bestInterfaceIndex, stop, func(reason string) {
+		a.mw.Synchronize(func() {
+			a.statusLabel.SetText("Status: jaringan berubah (" + reason + "), menyambung ulang...")
+		})
+		a.restartCore()
+	})
+}
+
+func (a *App) stopWatchdog() {
+	a.mu.Lock()
+	stop := a.watchStop
+	a.watchStop = nil
+	a.mu.Unlock()
+	if stop != nil {
+		close(stop)
+	}
+}
+
+// restartCore re-establishes the tunnel after the network moved. Guarded: a
+// flapping link must not turn into an endless restart loop.
+func (a *App) restartCore() {
+	a.mu.Lock()
+	if a.restarts >= maxRestarts {
+		a.mu.Unlock()
+		a.mw.Synchronize(func() {
+			a.statusLabel.SetText("Status: jaringan terus berubah - tekan Disconnect lalu Connect lagi")
+		})
+		return
+	}
+	a.restarts++
+	a.mu.Unlock()
+
+	a.killProcess()
+	time.Sleep(1200 * time.Millisecond)
+	a.mu.Lock()
+	host, port, user, pass := a.settings.Host, a.settings.Port, a.settings.User, a.settings.Pass
+	a.mu.Unlock()
+
+	if errMsg := a.startCore(host, port, user, pass); errMsg != "" {
+		a.mw.Synchronize(func() {
+			a.statusLabel.SetText("Status: " + errMsg)
+			a.connectBtn.SetEnabled(true)
+		})
+		return
+	}
+	a.mw.Synchronize(func() {
+		a.connected = true
+		a.statusLabel.SetText(a.connectedStatus(host, port))
+	})
+}
+
 func (a *App) doDisconnect() {
+	a.stopWatchdog()
 	a.killProcess()
 	a.statusLabel.SetText("Status: Disconnected")
 	a.connectBtn.SetEnabled(true)

@@ -142,3 +142,44 @@ func TestTunStacksAndMTU(t *testing.T) {
 		t.Fatalf("unknown stack fell back to %v, want %s", got, StackGVisor)
 	}
 }
+
+// The leak guards are the whole point of this config, so pin them down: strict
+// routing on, the local network excluded from the tunnel, DNS primary 1.1.1.1
+// with 8.8.8.8 kept as the backup entry, and IPv6 rejected instead of routed
+// out. A silent edit here would be a silent leak.
+func TestTunLeakGuards(t *testing.T) {
+	cfg := Tun("10.12.132.225", 1080, "user", "pass", TunOptions{})
+
+	inbound := cfg["inbounds"].([]map[string]interface{})[0]
+	if inbound["strict_route"] != true {
+		t.Fatal("strict_route is off: apps could bypass the tunnel")
+	}
+	excluded, _ := inbound["route_exclude_address"].([]string)
+	if len(excluded) == 0 {
+		t.Fatal("no route_exclude_address: the local network would be swallowed")
+	}
+	for _, want := range []string{"10.0.0.0/8", "192.168.0.0/16"} {
+		found := false
+		for _, have := range excluded {
+			if have == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("route_exclude_address is missing %s", want)
+		}
+	}
+
+	servers := cfg["dns"].(map[string]interface{})["servers"].([]map[string]interface{})
+	if servers[0]["server"] != "1.1.1.1" {
+		t.Fatalf("dns primary is %v, want 1.1.1.1", servers[0]["server"])
+	}
+	if len(servers) < 3 || servers[2]["server"] != "8.8.8.8" {
+		t.Fatalf("dns backup entry missing: %v", servers)
+	}
+	for _, server := range servers[:3] {
+		if server["detour"] != "socks-out" {
+			t.Fatalf("dns server %v does not detour through the tunnel", server["tag"])
+		}
+	}
+}

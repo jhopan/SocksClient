@@ -8,12 +8,18 @@
       {
         "tag": "remote",
         "type": "tcp",
-        "server": "8.8.8.8",
+        "server": "1.1.1.1",
         "detour": "socks-out"
       },
       {
         "tag": "remote-udp",
         "type": "udp",
+        "server": "1.1.1.1",
+        "detour": "socks-out"
+      },
+      {
+        "tag": "backup",
+        "type": "tcp",
         "server": "8.8.8.8",
         "detour": "socks-out"
       },
@@ -60,6 +66,12 @@
       "server": "local"
     },
     "rules": [
+      {
+        "action": "sniff",
+        "sniffer": [
+          "dns"
+        ]
+      },
       {
         "protocol": "dns",
         "action": "hijack-dns"

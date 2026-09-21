@@ -62,7 +62,8 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
     private static final String KEY_UPLOAD_BYTES = "upload_bytes";
     private static final String KEY_DOWNLOAD_BYTES = "download_bytes";
     private static final String TUN_IFACE = "sb-tun";
-    private static final long TRAFFIC_POLL_MS = 2000;
+    private static final long TRAFFIC_POLL_MS = 10000;
+    private static final long HEARTBEAT_MS = 10000;
 
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final Object lock = new Object();
@@ -236,7 +237,10 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
     }
 
     // ──────────────────────────────────────────────
-    // Heartbeat — agar UI tahu service masih hidup
+    // Heartbeat — agar UI tahu service masih hidup.
+    // Interval sengaja longgar (10s): tiap tulisan ke SharedPreferences adalah
+    // wakeup, dan layar mati tidak boleh berarti VPN mati. UI memakai jendela
+    // LAST_SEEN_WINDOW_MS = 3x interval ini supaya tidak salah anggap mati.
     // ──────────────────────────────────────────────
 
     private void startHeartbeat() {
@@ -246,7 +250,7 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
                 try {
                     SharedPreferences sp = getSharedPreferences(PREFS, MODE_PRIVATE);
                     sp.edit().putLong(KEY_LAST_SEEN, System.currentTimeMillis()).apply();
-                    Thread.sleep(3000);
+                    Thread.sleep(HEARTBEAT_MS);
                 } catch (InterruptedException e) {
                     break;
                 } catch (Exception e) {
@@ -317,8 +321,10 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
                             .putLong(KEY_DOWNLOAD_BYTES, downloadBytes.get())
                             .apply();
 
-                    // Update notification with latest traffic
-                    if (running) {
+                    // Update notification with latest traffic, but only when it
+                    // changed: re-posting the same text every poll is a needless
+                    // wakeup for the notification service.
+                    if (running && (curTx != prevTx || curRx != prevRx)) {
                         NotificationManager mgr = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
                         if (mgr != null) {
                             mgr.notify(NOTIF_ID, buildNotification(
@@ -433,8 +439,12 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
         // resolves the server hostname itself.
         sb.append("\"dns\":{");
         sb.append("\"servers\":[");
-        sb.append("{\"tag\":\"remote\",\"type\":\"tcp\",\"server\":\"8.8.8.8\",\"detour\":\"socks-out\"},");
-        sb.append("{\"tag\":\"remote-udp\",\"type\":\"udp\",\"server\":\"8.8.8.8\",\"detour\":\"socks-out\"},");
+        sb.append("{\"tag\":\"remote\",\"type\":\"tcp\",\"server\":\"1.1.1.1\",\"detour\":\"socks-out\"},");
+        sb.append("{\"tag\":\"remote-udp\",\"type\":\"udp\",\"server\":\"1.1.1.1\",\"detour\":\"socks-out\"},");
+        // Backup resolver. sing-box has no automatic failover between servers, so
+        // this one is here to be promoted by changing "final" when 1.1.1.1 is
+        // blocked on the network you are on.
+        sb.append("{\"tag\":\"backup\",\"type\":\"tcp\",\"server\":\"8.8.8.8\",\"detour\":\"socks-out\"},");
         sb.append("{\"tag\":\"local\",\"type\":\"local\"}");
         sb.append("],");
         sb.append("\"final\":\"remote\",");
@@ -491,6 +501,13 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
         // LAN/ISP) ditangkap di sini dan dijawab server "remote" lewat socks-out.
         // Sebelumnya memakai block port-53 yang khas sing-box 1.10; "action"
         // hijack-dns tersedia sejak 1.11 dan core kita 1.14.
+        // Sniff only DNS: the tun inbound auto-hijacks UDP DNS aimed at the VPN
+        // DNS address (tun address + 1), but queries to any other resolver - a
+        // hardcoded one in some app, or DNS over TCP after a truncated answer -
+        // are only recognised as DNS by sniffing. In sing-box 1.14 the sniff
+        // action carries no destination override, so this cannot rewrite where a
+        // connection goes.
+        sb.append("{\"action\":\"sniff\",\"sniffer\":[\"dns\"]},");
         sb.append("{\"protocol\":\"dns\",\"action\":\"hijack-dns\"},");
 
         // IPv6: the route still sends ::/0 into the tunnel (that is what stops a
@@ -549,7 +566,7 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
                 this, 0, openIntent, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
 
         return new Notification.Builder(this, CHANNEL_ID)
-                .setSmallIcon(android.R.drawable.stat_sys_upload_done)
+                .setSmallIcon(R.drawable.app_icon_foreground)
                 .setContentTitle("Socks Client")
                 .setContentText(content)
                 .setOngoing(true)

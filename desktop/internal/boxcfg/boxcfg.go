@@ -114,9 +114,13 @@ func Tun(host string, port int, user, pass string, opts TunOptions) map[string]i
 		"dns": map[string]interface{}{
 			"servers": []map[string]interface{}{
 				// queries travel the SOCKS tunnel - a LAN resolver handed out
-				// by DHCP can never answer them
-				{"tag": "remote", "type": "tcp", "server": "8.8.8.8", "detour": "socks-out"},
-				{"tag": "remote-udp", "type": "udp", "server": "8.8.8.8", "detour": "socks-out"},
+				// by DHCP can never answer them. 1.1.1.1 primary, 8.8.8.8 kept
+				// as the backup entry to promote by changing "final" if the
+				// primary is blocked on the network you are on (sing-box has no
+				// automatic failover between servers).
+				{"tag": "remote", "type": "tcp", "server": "1.1.1.1", "detour": "socks-out"},
+				{"tag": "remote-udp", "type": "udp", "server": "1.1.1.1", "detour": "socks-out"},
+				{"tag": "backup", "type": "tcp", "server": "8.8.8.8", "detour": "socks-out"},
 				// systems resolver, used only to bootstrap the SOCKS server's own
 				// hostname; "detour: direct" is rejected by sing-box inside
 				// auto_route (it would loop back into the tunnel)
@@ -128,7 +132,11 @@ func Tun(host string, port int, user, pass string, opts TunOptions) map[string]i
 		"inbounds": []map[string]interface{}{{
 			"type": "tun", "interface_name": opts.interfaceName(),
 			"address": []string{"172.19.0.1/30"}, "mtu": opts.mtu(),
-			"auto_route": true, "strict_route": false, "stack": opts.stack(),
+			"auto_route": true, "strict_route": true, "stack": opts.stack(),
+			// Keep the local network reachable: the hotspot itself, the phone's
+			// admin page and printers are not internet traffic and must not be
+			// swallowed by the tunnel.
+			"route_exclude_address": []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16"},
 		}},
 		"outbounds": []map[string]interface{}{
 			socksOutbound(host, port, user, pass),
