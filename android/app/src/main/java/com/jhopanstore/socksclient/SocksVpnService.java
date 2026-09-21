@@ -7,6 +7,13 @@ import android.app.PendingIntent;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.net.ConnectivityManager;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.InetSocketAddress;
+import java.net.Proxy;
+import java.net.URL;
 import android.net.Network;
 import android.net.VpnService;
 import android.os.Build;
@@ -65,6 +72,20 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
     private static final String KEY_DOWNLOAD_BYTES = "download_bytes";
     private static final String TUN_IFACE = "sb-tun";
     private static final long TRAFFIC_POLL_MS = 10000;
+
+    // ── HTTP ping ──
+    // Proses aplikasi ini dikecualikan dari VPN (addDisallowedApplication), jadi
+    // trafiknya TIDAK masuk TUN. Ping karena itu dikirim ke inbound loopback di
+    // bawah ini supaya sing-box yang meneruskannya lewat socks-out: hasilnya
+    // benar-benar menguji jalur app -> sing-box -> SOCKS -> internet.
+    private static final int PING_PORT = 2081;
+    private static final long PING_INTERVAL_MS = 30000;
+    private static final String PING_PREFS_KEY = "ping_enabled";
+    private static final String PING_RESULT_KEY = "ping_result";
+    private static final String[] PING_TARGETS = {
+            "http://connectivitycheck.gstatic.com/generate_204",
+            "http://cp.cloudflare.com/generate_204",
+    };
     private static final long HEARTBEAT_MS = 10000;
 
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
@@ -82,6 +103,8 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
     private volatile String serverUser;
     private volatile String serverPass;
     private ConnectivityManager.NetworkCallback networkCallback;
+    private volatile boolean pingRunning;
+    private Thread pingThread;
     private volatile long lastNetworkRestart;
 
     // ── Traffic counter ──
@@ -259,6 +282,7 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
             notifyStatus("Connected");
             registerNetworkWatchdog();
             startHeartbeat();
+            startPingMonitor();
             resetTrafficCounters();
             loadTrafficToggle();
             startTrafficMonitor();
@@ -289,6 +313,7 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
         logI("disconnectInternal");
         unregisterNetworkWatchdog();
         stopHeartbeat();
+        stopPingMonitor();
         stopTrafficMonitor();
         disconnectCoreOnly();
         setStatus(false, "Disconnected");
@@ -553,6 +578,9 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
         // does not depend on the device's kernel/driver quirks. Same choice as
         // the desktop client.
         sb.append("\"stack\":\"gvisor\"");
+        // Inbound loopback untuk HTTP ping (PING_PORT). Hanya 127.0.0.1, jadi
+        // tidak ada yang bisa menyentuhnya dari luar perangkat.
+        sb.append("},{\"type\":\"mixed\",\"tag\":\"ping-in\",\"listen\":\"127.0.0.1\",\"listen_port\":").append(PING_PORT);
         // NOTE: "sniff"/"sniff_override_destination" lived here until sing-box
         // 1.13 removed legacy inbound fields - sniffing is a route action now.
         sb.append("}],");
@@ -690,6 +718,83 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
         if (e == null) return "unknown";
         String msg = e.getMessage();
         return (msg == null || msg.trim().isEmpty()) ? e.getClass().getSimpleName() : msg;
+    }
+
+    // ──────────────────────────────────────────────
+    // HTTP ping (tombol On/Off di UI)
+    // ──────────────────────────────────────────────
+
+    private void startPingMonitor() {
+        if (pingRunning) return;
+        pingRunning = true;
+        pingThread = new Thread(this::pingLoop, "http-ping");
+        pingThread.start();
+        logI("http ping monitor started");
+    }
+
+    private void stopPingMonitor() {
+        pingRunning = false;
+        if (pingThread != null) {
+            pingThread.interrupt();
+            pingThread = null;
+        }
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit().remove(PING_RESULT_KEY).apply();
+    }
+
+    // Loop tipis: cek pref tiap 2 detik (supaya tombol On langsung bekerja) tapi
+    // hanya mengirim ping tiap PING_INTERVAL_MS. Saat Off, hasil lama dihapus
+    // supaya UI tidak menampilkan angka basi.
+    private void pingLoop() {
+        long next = 0;
+        while (pingRunning) {
+            SharedPreferences sp = getSharedPreferences(PREFS, MODE_PRIVATE);
+            boolean enabled = sp.getBoolean(PING_PREFS_KEY, false) && running;
+            if (!enabled) {
+                sp.edit().remove(PING_RESULT_KEY).apply();
+                next = 0;
+            } else if (System.currentTimeMillis() >= next) {
+                String result = pingOnce();
+                if (pingRunning) sp.edit().putString(PING_RESULT_KEY, result).apply();
+                next = System.currentTimeMillis() + PING_INTERVAL_MS;
+            }
+            try {
+                Thread.sleep(2000);
+            } catch (InterruptedException e) {
+                return;
+            }
+        }
+    }
+
+    /**
+     * Satu percobaan ping lewat inbound loopback (PING_PORT), jadi permintaan ini
+     * benar-benar keluar melalui socks-out dan bukan internet langsung.
+     */
+    private String pingOnce() {
+        String lastErr = "timeout";
+        for (String target : PING_TARGETS) {
+            HttpURLConnection conn = null;
+            long start = System.currentTimeMillis();
+            try {
+                Proxy proxy = new Proxy(Proxy.Type.HTTP, new InetSocketAddress("127.0.0.1", PING_PORT));
+                conn = (HttpURLConnection) new URL(target).openConnection(proxy);
+                conn.setRequestMethod("GET");
+                conn.setConnectTimeout(6000);
+                conn.setReadTimeout(6000);
+                conn.setUseCaches(false);
+                int code = conn.getResponseCode();
+                long ms = System.currentTimeMillis() - start;
+                // Body 204 memang kosong; tutup saja supaya koneksi bisa keep-alive.
+                InputStream in = code >= 400 ? conn.getErrorStream() : conn.getInputStream();
+                if (in != null) in.close();
+                if (code == 204) return "204 " + ms + "ms";
+                lastErr = "HTTP " + code;
+            } catch (Throwable t) {
+                lastErr = safeMessage(t);
+            } finally {
+                if (conn != null) conn.disconnect();
+            }
+        }
+        return "gagal (" + lastErr + ")";
     }
 
     // logcat tidak boleh memuat kredensial SOCKS dari config yang dicetak.

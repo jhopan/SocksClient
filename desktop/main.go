@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"encoding/json"
 	"fmt"
@@ -36,7 +37,7 @@ const (
 	maxRestarts = 4
 
 	appName      = "Socks Client Desktop"
-	appVersion   = "1.3.0"
+	appVersion   = "1.4.0"
 	lockFileName = "socks_client_desktop.lock"
 )
 
@@ -70,6 +71,13 @@ type App struct {
 
 	passwordNotice   string
 	migratedPassword bool
+
+	// HTTP ping (on/off lewat radio button). pingCancel menghentikan loop saat
+	// Disconnect atau keluar aplikasi.
+	pingOnRB, pingOffRB *walk.RadioButton
+	pingCancel          context.CancelFunc
+	lastPing            PingResult
+	connectedText       string
 }
 
 type Settings struct {
@@ -81,6 +89,8 @@ type Settings struct {
 	Pass    string `json:"pass,omitempty"`
 	PassEnc string `json:"pass_enc,omitempty"`
 	Tray    bool   `json:"tray"`
+	// Ping: tombol HTTP ping on/off. Disimpan supaya pilihan user bertahan.
+	Ping bool `json:"ping"`
 }
 
 // runtimeDir keeps the writable bits (settings, config, sing-box.exe, log) out
@@ -242,6 +252,7 @@ func (a *App) runUI() {
 	var hostEdit, portEdit, userEdit, passEdit *walk.LineEdit
 	var trayCB *walk.CheckBox
 	var connectBtn, disconnBtn *walk.PushButton
+	var pingOnRB, pingOffRB *walk.RadioButton
 	var statusLabel *walk.Label
 	var logoView *walk.ImageView
 
@@ -279,6 +290,14 @@ func (a *App) runUI() {
 				CheckBox{AssignTo: &trayCB, Text: "Minimize to tray when closed", Checked: a.settings.Tray, Font: Font{Family: "Segoe UI", PointSize: 9},
 					OnCheckedChanged: func() { a.trayEnabled = trayCB.Checked() }},
 			}},
+			Composite{Layout: HBox{Margins: Margins{Left: 15, Top: 4, Right: 15, Bottom: 2}, Spacing: 6}, Children: []Widget{
+				Label{Text: "HTTP ping:", Font: Font{Family: "Segoe UI", PointSize: 9}},
+				RadioButton{AssignTo: &pingOnRB, Text: "On", Font: Font{Family: "Segoe UI", PointSize: 9},
+					OnClicked: func() { a.startPing() }},
+				RadioButton{AssignTo: &pingOffRB, Text: "Off", Font: Font{Family: "Segoe UI", PointSize: 9},
+					OnClicked: func() { a.startPing() }},
+				Label{Text: "kirim 204 ke internet lewat tunnel tiap 30 detik (\u00b1 1-2 MB/hari)", Font: Font{Family: "Segoe UI", PointSize: 8}},
+			}},
 			Composite{Layout: VBox{Margins: Margins{Left: 15, Top: 6, Right: 15, Bottom: 5}, Spacing: 6}, Children: []Widget{
 				PushButton{AssignTo: &connectBtn, Text: "Connect Socks VPN", Font: Font{Family: "Segoe UI", PointSize: 10, Bold: true},
 					OnClicked: func() {
@@ -310,6 +329,14 @@ func (a *App) runUI() {
 	a.connectBtn, a.disconnBtn = connectBtn, disconnBtn
 	a.statusLabel = statusLabel
 	a.trayCB = trayCB
+	a.pingOnRB, a.pingOffRB = pingOnRB, pingOffRB
+	// RadioButton declaratif tidak punya field Checked: keadaan awal dipasang
+	// setelah window dibuat.
+	if a.settings.Ping {
+		a.pingOnRB.SetChecked(true)
+	} else {
+		a.pingOffRB.SetChecked(true)
+	}
 
 	// S3: tulis ulang settings lama (password plaintext) dalam bentuk terenkripsi,
 	// dan beri tahu kalau blob DPAPI tidak bisa dibuka (file dari akun lain).
@@ -450,6 +477,7 @@ func (a *App) doConnect() {
 	a.settings = Settings{
 		Host: host, Port: portNum, User: user, Pass: pass,
 		Tray: a.trayCB.Checked(),
+		Ping: a.pingRequested(),
 	}
 	a.saveSettings()
 	a.statusLabel.SetText("Status: Connecting...")
@@ -467,16 +495,63 @@ func (a *App) doConnect() {
 			a.mu.Lock()
 			a.restarts = 0
 			a.mu.Unlock()
-			a.statusLabel.SetText(a.connectedStatus(host, portNum))
+			a.connectedText = a.connectedStatus(host, portNum)
+			a.statusLabel.SetText(a.connectedText)
 			a.connectBtn.SetEnabled(false)
 			a.disconnBtn.SetEnabled(true)
 			a.startWatchdog(host)
+			a.startPing()
 		})
 	}()
 }
 
 func (a *App) connectedStatus(host string, port int) string {
 	return fmt.Sprintf("Status: Connected (TUN, gvisor) %s:%d", host, port)
+}
+
+// pingRequested membaca radio button (fallback ke settings kalau UI belum siap).
+func (a *App) pingRequested() bool {
+	if a.pingOnRB != nil {
+		return a.pingOnRB.Checked()
+	}
+	return a.settings.Ping
+}
+
+// startPing menjalankan loop HTTP ping kalau tombolnya On. Loop berhenti sendiri
+// saat Disconnect, watchdog me-restart core, atau aplikasi keluar.
+func (a *App) startPing() {
+	a.stopPing()
+	if !a.pingRequested() {
+		a.refreshStatus()
+		return
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	a.pingCancel = cancel
+	go watchPing(ctx, newPingClient(), pingTargets, defaultPingInterval, func(r PingResult) {
+		a.lastPing = r
+		a.refreshStatus()
+	})
+}
+
+func (a *App) stopPing() {
+	if a.pingCancel != nil {
+		a.pingCancel()
+		a.pingCancel = nil
+	}
+}
+
+// refreshStatus menempelkan hasil ping terakhir ke baris status koneksi.
+func (a *App) refreshStatus() {
+	if a.statusLabel == nil {
+		return
+	}
+	text := a.connectedText
+	if a.connected && text != "" {
+		if a.pingRequested() {
+			text += "  -  " + a.lastPing.summary()
+		}
+		a.mw.Synchronize(func() { a.statusLabel.SetText(text) })
+	}
 }
 
 // findSingBox locates the core executable: next to the app (installer), in the
@@ -681,8 +756,10 @@ func (a *App) restartCore() {
 	}
 	a.mw.Synchronize(func() {
 		a.connected = true
-		a.statusLabel.SetText(a.connectedStatus(host, port))
+		a.connectedText = a.connectedStatus(host, port)
+		a.statusLabel.SetText(a.connectedText)
 	})
+	a.startPing()
 }
 
 func (a *App) doDisconnect() {
@@ -713,6 +790,12 @@ func (a *App) killProcess() {
 
 	// Core sudah mati: config.json tidak dipakai lagi dan isinya kredensial.
 	os.Remove(filepath.Join(a.runDir, "config.json"))
+
+	// Ping mengikuti umur core: berhenti di sini, dinyalakan ulang oleh pemanggil
+	// (doConnect / restartCore) setelah core hidup lagi.
+	a.stopPing()
+	a.connectedText = ""
+	a.lastPing = PingResult{}
 }
 
 // relaunchElevated restarts the app with a UAC prompt for mode TUN. The lock

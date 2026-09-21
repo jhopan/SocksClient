@@ -2,13 +2,13 @@
 
 # Socks Client
 
-**v1.3.0** — SOCKS5 tunnel client for Android and Windows Desktop
+**v1.4.0** — SOCKS5 tunnel client for Android and Windows Desktop
 
 Connect a device to your SOCKS5 hotspot server and route **all** traffic through
 it: TCP, UDP and DNS. One mode, tuned for networks where other clients break.
 
-[![Download APK](https://img.shields.io/badge/Android-APK%20v1.3.0-3ddc84?style=for-the-badge&logo=android&logoColor=white)](../../releases/latest)
-[![Download Desktop](https://img.shields.io/badge/Windows-Installer%20v1.3.0-0078d4?style=for-the-badge&logo=windows&logoColor=white)](../../releases/latest)
+[![Download APK](https://img.shields.io/badge/Android-APK%20v1.4.0-3ddc84?style=for-the-badge&logo=android&logoColor=white)](../../releases/latest)
+[![Download Desktop](https://img.shields.io/badge/Windows-Installer%20v1.4.0-0078d4?style=for-the-badge&logo=windows&logoColor=white)](../../releases/latest)
 [![Release](https://img.shields.io/github/v/release/jhopan/SocksClient?style=for-the-badge&color=blue)](../../releases)
 [![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)](LICENSE)
 
@@ -60,6 +60,25 @@ Verify what you downloaded:
 sha256sum -c SHA256SUMS.txt
 ```
 
+## HTTP ping (on/off)
+
+Both clients can prove the tunnel end to end while connected: an `HTTP ping` radio
+button sends `GET /generate_204` every 30 seconds and shows the result next to the
+status (`ping 204 38ms`, or the error). Google's endpoint is tried first, then
+Cloudflare's.
+
+It is a diagnostic, not a keep-alive: the tunnel never depends on it and switching
+it off removes all extra traffic. Cost is small but real - no body, keep-alive
+connections, one request per 30 s - roughly 1-2 MB per day if left on.
+
+How the probe travels matters. On Windows the app's own traffic enters the TUN, so
+the request goes through the SOCKS server by itself. On Android the app is
+deliberately excluded from its own VPN (the core must reach the server directly),
+so a probe from the app would test the wrong path; instead the config opens a
+loopback `mixed` inbound on `127.0.0.1:2081` and the probe is sent through it, which
+means sing-box performs the request over `socks-out`. Both paths were measured on a
+real machine: `204` in 0.22-0.39 s, with `strict_route` enabled.
+
 ## How it works
 
 ```
@@ -107,8 +126,9 @@ sing-box has no automatic failover between DNS servers: `1.1.1.1` answers, and
 | Mode | always TUN (`VpnService`) | always TUN (needs Administrator, UAC on launch) |
 | DNS | VPN DNS + `hijack-dns`; no public resolver at the OS layer | same, plus WFP blocks any DNS that tries to leave |
 | Local network | routed into the tunnel (phone hotspot case) | kept reachable via route exclusions (10/8, 172.16/12, 192.168/16, 169.254/16) |
-| Network change | default-network callback reloads sing-box | watchdog (`GetBestInterfaceEx`) restarts the core, max 4 times |
 | Credentials at rest | password encrypted with an Android Keystore AES-GCM key | password encrypted with DPAPI (tied to the Windows account) |
+| Network change | default-network callback reloads sing-box | watchdog (`GetBestInterfaceEx`) restarts the core, max 4 times |
+| HTTP ping | `On/Off` radio; the probe goes through a loopback inbound so it really tests the tunnel | `On/Off` radio; the probe is an HTTP GET that enters the TUN |
 | Notifications | one ongoing notification (foreground service, type `systemExempted`) | tray icon + `Diagnosa` dialog |
 
 Want plain HTTP/SOCKS proxying instead? Point that app straight at your SOCKS

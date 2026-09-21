@@ -19,6 +19,8 @@ import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
+import android.widget.RadioButton;
+import android.widget.RadioGroup;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -46,6 +48,9 @@ public class MainActivity extends Activity {
     private EditText userInput;
     private EditText passInput;
     private TextView statusText;
+    private TextView pingText;
+    private RadioButton pingOnRadio, pingOffRadio;
+    private boolean syncingPingUi;
     private Button connectButton;
     // private Button disconnectButton; // merged into connectButton
 
@@ -136,6 +141,39 @@ public class MainActivity extends Activity {
         infoDev.setBackgroundColor(Color.rgb(70, 130, 180));
         infoDev.setOnClickListener(v -> showDeveloperInfo());
         root.addView(infoDev, marginTop(matchWrap(), 8));
+
+        // HTTP ping: On/Off. Hasilnya ditulis service ke prefs dan dibaca di sini.
+        LinearLayout pingRow = new LinearLayout(this);
+        pingRow.setOrientation(LinearLayout.HORIZONTAL);
+        pingRow.setGravity(Gravity.CENTER_VERTICAL);
+        pingRow.addView(text("HTTP ping:", 14, true, TEXT_PRIMARY), matchWrap());
+        RadioGroup pingGroup = new RadioGroup(this);
+        pingGroup.setOrientation(RadioGroup.HORIZONTAL);
+        pingOnRadio = new RadioButton(this);
+        pingOnRadio.setText("On");
+        pingOnRadio.setTextColor(TEXT_PRIMARY);
+        pingOffRadio = new RadioButton(this);
+        pingOffRadio.setText("Off");
+        pingOffRadio.setTextColor(TEXT_PRIMARY);
+        pingGroup.addView(pingOnRadio);
+        pingGroup.addView(pingOffRadio);
+        pingGroup.setOnCheckedChangeListener((group, checkedId) -> {
+            if (syncingPingUi) return;
+            boolean enabled = checkedId == pingOnRadio.getId();
+            getSharedPreferences(STATUS_PREFS, MODE_PRIVATE).edit()
+                    .putBoolean("ping_enabled", enabled)
+                    .apply();
+        });
+        LinearLayout.LayoutParams pingGroupParams = matchWrap();
+        pingGroupParams.leftMargin = dp(4);
+        pingRow.addView(pingGroup, pingGroupParams);
+        root.addView(pingRow, marginTop(matchWrap(), 10));
+
+        pingText = text("Ping: -", 13, false, TEXT_SECONDARY);
+        root.addView(pingText, marginTop(matchWrap(), 4));
+        // Biaya data kecil tapi nyata: satu permintaan 204 tanpa isi tiap 30 detik.
+        root.addView(text("Ping mengirim 204 ke internet lewat tunnel tiap 30 detik (\u00b1 1-2 MB/hari)", 11, false, TEXT_SECONDARY),
+                marginTop(matchWrap(), 2));
 
         statusText = text("", 15, true, TEXT_PRIMARY);
         root.addView(statusText, marginTop(matchWrap(), 18));
@@ -271,6 +309,27 @@ public class MainActivity extends Activity {
         }
 
         statusText.setText("Status: " + (connected ? "Connected" : "Disconnected"));
+
+        // HTTP ping: samakan radio dengan pref (tanpa memicu penulisan balik),
+        // lalu tampilkan hasil terakhir yang ditulis service.
+        boolean pingEnabled = statusPrefs.getBoolean("ping_enabled", false);
+        syncingPingUi = true;
+        if (pingEnabled && !pingOnRadio.isChecked()) {
+            pingOnRadio.setChecked(true);
+        } else if (!pingEnabled && !pingOffRadio.isChecked()) {
+            pingOffRadio.setChecked(true);
+        }
+        syncingPingUi = false;
+        if (pingText != null) {
+            String pingResult = statusPrefs.getString("ping_result", null);
+            if (pingResult != null) {
+                pingText.setText("Ping: " + pingResult);
+            } else {
+                pingText.setText(pingEnabled
+                        ? (connected ? "Ping: menunggu hasil..." : "Ping: aktif saat Connected")
+                        : "Ping: off (tidak ada trafik tambahan)");
+            }
+        }
 
         boolean connecting = false;
         String status = statusPrefs.getString(KEY_STATUS, "");
