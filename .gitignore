@@ -47,3 +47,7 @@ sing-box-recompile/
 # OS
 .DS_Store
 Thumbs.db
+
+# Signing material - jangan pernah masuk git
+*.jks
+*.keystore
