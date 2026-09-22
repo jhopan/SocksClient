@@ -151,6 +151,7 @@ import "unsafe"
 // --- jembatan Go <-> C -------------------------------------------------------
 
 func createDelegate()    { C.create_delegate() }
+func uiInit()            { C.ui_init() }
 func uiRun()             { C.ui_run() }
 func setStatus(s string) { cs := C.CString(s); C.set_status_text(cs); C.free(unsafe.Pointer(cs)) }
 func setLog(s string)    { cs := C.CString(s); C.set_log_text(cs); C.free(unsafe.Pointer(cs)) }

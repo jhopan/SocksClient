@@ -36,7 +36,7 @@ jobs:
           go build -trimpath -ldflags "-s -w" -o /tmp/socksgui-gtk ./cmd/socksgui-gtk
           ls -la /tmp/socksgui-gtk
           echo "GTK_BIN_BYTES=$(stat -c%s /tmp/socksgui-gtk)" >> $GITHUB_ENV
-          ldd /tmp/socksgui-gtk | head -12
+          ldd /tmp/socksgui-gtk 2>/dev/null | head -12 || true
 
   macos-appkit:
     runs-on: macos-14
@@ -58,4 +58,4 @@ jobs:
           go build -trimpath -ldflags "-s -w" -o /tmp/socksgui-mac ./cmd/socksgui-mac
           ls -la /tmp/socksgui-mac
           echo "MAC_BIN_BYTES=$(stat -c%s /tmp/socksgui-mac)" >> $GITHUB_ENV
-          otool -L /tmp/socksgui-mac | head -8
+          otool -L /tmp/socksgui-mac 2>/dev/null | head -8 || true
