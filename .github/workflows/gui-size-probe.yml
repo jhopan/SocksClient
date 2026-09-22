@@ -1,0 +1,104 @@
+name: GUI size probe (sementara)
+
+# Workflow sekali pakai: mengukur ukuran binary GUI Linux (Fyne vs Gio) di runner
+# yang punya header GL/X11, karena di mesin Windows cgo Fyne tidak bisa dibangun.
+# Dihapus setelah angkanya didapat.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
+      - name: Install GUI headers (Fyne/Gio butuh GL + X11)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libgl1-mesa-dev xorg-dev libwayland-dev libxkbcommon-dev >/dev/null
+
+      - name: Build Fyne hello world
+        run: |
+          W="$RUNNER_TEMP/probe"; mkdir -p "$W/fyne" && cd "$W/fyne"
+          cat > main.go <<'EOF'
+          package main
+
+          import (
+              "fyne.io/fyne/v2/app"
+              "fyne.io/fyne/v2/container"
+              "fyne.io/fyne/v2/widget"
+          )
+
+          func main() {
+              a := app.New()
+              w := a.NewWindow("Socks Client")
+              host := widget.NewEntry()
+              port := widget.NewEntry()
+              status := widget.NewLabel("Status: Disconnected")
+              connect := widget.NewButton("Connect", func() { status.SetText("Connected") })
+              w.SetContent(container.NewVBox(widget.NewLabel("Host"), host, widget.NewLabel("Port"), port, connect, status))
+              w.ShowAndRun()
+          }
+          EOF
+          printf 'module fynehello\n\ngo 1.25\n' > go.mod
+          go mod tidy >/dev/null 2>&1
+          go build -ldflags="-s -w" -o fynehello .
+          echo "FYNE_LINUX_BYTES=$(stat -c%s fynehello)" >> $GITHUB_ENV
+          echo "FYNE_DEPS_LINES=$(grep -c '' go.mod)" >> $GITHUB_ENV
+
+      - name: Build Gio hello world
+        run: |
+          W="$RUNNER_TEMP/probe"; mkdir -p "$W/gio" && cd "$W/gio"
+          cat > main.go <<'EOF'
+          package main
+
+          import (
+              "gioui.org/app"
+              "gioui.org/io/system"
+              "gioui.org/layout"
+              "gioui.org/widget"
+              "gioui.org/widget/material"
+          )
+
+          func main() {
+              go func() {
+                  w := new(app.Window)
+                  th := material.NewTheme()
+                  var btn widget.Clickable
+                  for {
+                      e := <-w.Events()
+                      if _, ok := e.(system.DestroyEvent); ok {
+                          return
+                      }
+                      if fr, ok := e.(system.FrameEvent); ok {
+                          gtx := layout.NewContext(&fr.Ops, fr)
+                          material.Button(th, &btn, "Connect").Layout(gtx)
+                          fr.Frame(gtx.Ops)
+                      }
+                  }
+              }()
+              app.Main()
+          }
+          EOF
+          printf 'module giohello\n\ngo 1.25\n' > go.mod
+          go mod tidy >/dev/null 2>&1
+          go build -ldflags="-s -w" -o giohello .
+          echo "GIO_LINUX_BYTES=$(stat -c%s giohello)" >> $GITHUB_ENV
+
+      - name: Report
+        run: |
+          echo "Fyne binary : $FYNE_LINUX_BYTES bytes"
+          echo "Fyne go.mod : $FYNE_DEPS_LINES baris"
+          echo "Gio binary  : $GIO_LINUX_BYTES bytes"
+          echo "=== ringkasan ==="
+          ls -la "$RUNNER_TEMP/probe/fyne/fynehello" "$RUNNER_TEMP/probe/gio/giohello"
