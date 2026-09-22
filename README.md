@@ -2,13 +2,13 @@
 
 # Socks Client
 
-**v1.5.0** — SOCKS5 tunnel client for Android, Windows, Linux and macOS
+**v1.6.0** — SOCKS5 tunnel client for Android, Windows, Linux and macOS
 
 Connect a device to your SOCKS5 hotspot server and route **all** traffic through
 it: TCP, UDP and DNS. One mode, tuned for networks where other clients break.
 
-[![Download APK](https://img.shields.io/badge/Android-APK%20v1.5.0-3ddc84?style=for-the-badge&logo=android&logoColor=white)](../../releases/latest)
-[![Download Desktop](https://img.shields.io/badge/Windows-Installer%20v1.5.0-0078d4?style=for-the-badge&logo=windows&logoColor=white)](../../releases/latest)
+[![Download APK](https://img.shields.io/badge/Android-APK%20v1.6.0-3ddc84?style=for-the-badge&logo=android&logoColor=white)](../../releases/latest)
+[![Download Desktop](https://img.shields.io/badge/Windows-Installer%20v1.6.0-0078d4?style=for-the-badge&logo=windows&logoColor=white)](../../releases/latest)
 [![Release](https://img.shields.io/github/v/release/jhopan/SocksClient?style=for-the-badge&color=blue)](../../releases)
 [![Linux](https://img.shields.io/badge/Linux-.deb%20%2B%20tarball-fcc624?style=for-the-badge&logo=linux&logoColor=black)](../../releases/latest)
 [![macOS](https://img.shields.io/badge/macOS-universal%20binary-000000?style=for-the-badge&logo=apple&logoColor=white)](../../releases/latest)
@@ -54,10 +54,10 @@ TUN adapter, and networks that quietly answer DNS for you.
 **Linux**
 
 ```bash
-sudo dpkg -i socksclient_<version>_amd64.deb     # or arm64
-sudo socksctl gui -host 10.0.0.1 -port 1080      # browser UI, same tunnel
-# or headless, foreground, Ctrl+C to stop:
-sudo socksctl up  -host 10.0.0.1 -port 1080
+sudo dpkg -i socksclient_<version>_amd64.deb     # GUI is in the amd64 package
+socksclient-gui                                  # or: sudo socksgui
+# headless / service, no GUI at all:
+sudo socksctl up -host 10.0.0.1 -port 1080
 ```
 No dpkg? Use the tarball: `tar -xzf SocksClient-linux-amd64-<version>.tar.gz && sudo ./socksclient/install.sh`.
 
@@ -109,6 +109,25 @@ so a probe from the app would test the wrong path; instead the config opens a
 loopback `mixed` inbound on `127.0.0.1:2081` and the probe is sent through it, which
 means sing-box performs the request over `socks-out`. Both paths were measured on a
 real machine: `204` in 0.22-0.39 s, with `strict_route` enabled.
+
+## Three desktops, one engine
+
+Each platform gets a GUI built on **its own OS toolkit** - the same trick the
+Windows client has always used - so the binary stays small and the toolkit is
+already in memory:
+
+| Platform | GUI | Toolkit | Binary | RAM (idle) |
+|---|---|---|---|---|
+| Windows | `socks-client.exe` | Win32 via `lxn/walk` | ~10 MB | ~27 MB |
+| Linux | `socksgui` | GTK3 via cgo | ~5.9 MB | ~77 MB (mostly libraries shared with the desktop session) |
+| macOS | `SocksClient.app` | AppKit via cgo/ObjC | ~5.5 MB | not measured (AppKit is shared with the OS) |
+
+All three call the same Go logic: `internal/boxcfg` renders the sing-box config,
+`internal/ping` runs the HTTP ping, `internal/engine` supervises the core, and
+`internal/guicore` holds the form/settings behaviour. The CLI (`socksctl`) shares
+`boxcfg` and `ping` too. Nothing about the tunnel depends on which GUI is open:
+`sudo socksctl up` runs it with no GUI at all (that is how a headless Linux box
+or a systemd service uses it).
 
 ## How it works
 

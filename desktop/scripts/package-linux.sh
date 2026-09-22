@@ -13,6 +13,11 @@ echo "== build socksctl $VERSION"
 (cd "$DESKTOP" && GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o "$OUT/bin/socksctl-amd64" ./cmd/socksctl)
 (cd "$DESKTOP" && GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o "$OUT/bin/socksctl-arm64" ./cmd/socksctl)
 
+# GUI GTK3: cgo hanya bisa dibangun untuk arsitektur host, jadi GUI masuk ke
+# paket amd64. Paket arm64 tetap dapat CLI (+ UI browser) - dicatat di rilis.
+echo "== build socksgui (GTK3, amd64)"
+(cd "$DESKTOP" && go build -trimpath -ldflags "-s -w" -o "$OUT/bin/socksgui-amd64" ./cmd/socksgui-gtk)
+
 for arch in amd64 arm64; do
   echo "== ambil core linux-$arch"
   SUFFIX="linux-$arch.tar.gz" bash "$HERE/fetch-core-unix.sh" "$OUT/core"
@@ -27,10 +32,20 @@ for arch in amd64 arm64; do
 
   install -m 0755 "$OUT/bin/socksctl-$arch" "$pkg/usr/bin/socksctl"
   install -m 0755 "$OUT/core/sing-box-linux-$arch" "$pkg/usr/lib/socksclient/sing-box"
+  if [ "$arch" = "amd64" ]; then
+    install -m 0755 "$OUT/bin/socksgui-amd64" "$pkg/usr/bin/socksgui"
+  fi
 
   cat > "$pkg/usr/bin/socksclient-gui" <<'EOS'
 #!/bin/sh
-# UI di browser dengan hak root: TUN butuh root untuk membuat interface + route.
+# GUI native (GTK3) dengan hak root: TUN butuh root untuk membuat interface + route.
+# Kalau binary GUI tidak ada (mis. paket arm64), jatuh ke UI browser lewat CLI.
+if [ -x /usr/bin/socksgui ]; then
+  if command -v pkexec >/dev/null 2>&1; then
+    exec pkexec /usr/bin/socksgui "$@"
+  fi
+  exec sudo /usr/bin/socksgui "$@"
+fi
 if command -v pkexec >/dev/null 2>&1; then
   exec pkexec /usr/bin/socksctl gui "$@"
 fi
@@ -93,8 +108,9 @@ Description: SOCKS5 tunnel client (TUN) - Socks Client
  Klien SOCKS5 untuk Linux. Seluruh trafik (TCP, UDP, DNS) dialirkan keluar
  melalui server SOCKS5, tanpa DNS leak dan tanpa IPv6 bocor.
  .
- Isi paket: /usr/bin/socksctl (CLI + UI browser), core sing-box minimal di
- /usr/lib/socksclient/sing-box, unit systemd socksclient.service (tidak
+ Isi paket: /usr/bin/socksgui (GUI GTK3, di paket amd64), /usr/bin/socksctl
+ (CLI + UI browser), core sing-box minimal di /usr/lib/socksclient/sing-box,
+ unit systemd socksclient.service (tidak
  diaktifkan otomatis), dan /etc/socksclient.conf.example.
  .
  Pakai: sudo socksctl up -host 10.0.0.1 -port 1080
@@ -110,6 +126,9 @@ EOS
   mkdir -p "$tar_dir/socksclient"
   install -m 0755 "$OUT/bin/socksctl-$arch" "$tar_dir/socksclient/socksctl"
   install -m 0755 "$OUT/core/sing-box-linux-$arch" "$tar_dir/socksclient/sing-box"
+  if [ "$arch" = "amd64" ] && [ -f "$OUT/bin/socksgui-amd64" ]; then
+    install -m 0755 "$OUT/bin/socksgui-amd64" "$tar_dir/socksclient/socksgui"
+  fi
   cat > "$tar_dir/socksclient/install.sh" <<'EOS'
 #!/bin/sh
 # Pasang ke /usr/local (butuh root).
@@ -118,6 +137,10 @@ dir=$(dirname "$0")
 install -m 0755 "$dir/socksctl" /usr/local/bin/socksctl
 mkdir -p /usr/local/lib/socksclient
 install -m 0755 "$dir/sing-box" /usr/local/lib/socksclient/sing-box
+if [ -f "$dir/socksgui" ]; then
+  install -m 0755 "$dir/socksgui" /usr/local/bin/socksgui
+  echo "GUI GTK3 terpasang: sudo socksgui"
+fi
 echo "terpasang: /usr/local/bin/socksctl"
 echo "pakai: sudo socksctl up -host <IP> -port <PORT>"
 echo "       sudo socksctl gui -host <IP> -port <PORT>   (UI di browser)"

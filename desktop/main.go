@@ -38,7 +38,7 @@ const (
 	maxRestarts = 4
 
 	appName      = "Socks Client Desktop"
-	appVersion   = "1.5.0"
+	appVersion   = "1.6.0"
 	lockFileName = "socks_client_desktop.lock"
 )
 

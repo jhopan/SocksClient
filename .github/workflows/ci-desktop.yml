@@ -12,6 +12,53 @@ on:
   workflow_dispatch:
 
 jobs:
+  # GUI native hanya bisa dibangun di platformnya (cgo GTK3 / cgo AppKit).
+  # Ini gerbang tiap push supaya shell GUI tidak rusak tanpa terlihat.
+  gui-linux:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
+      - name: Install GTK3 dev
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libgtk-3-dev >/dev/null
+
+      - name: Vet and build GTK3 GUI
+        run: |
+          go vet ./...
+          go build -trimpath -ldflags "-s -w" -o "$RUNNER_TEMP/socksgui-gtk" ./cmd/socksgui-gtk
+          echo "socksgui (GTK3): $(stat -c%s "$RUNNER_TEMP/socksgui-gtk") bytes"
+
+  gui-macos:
+    runs-on: macos-14
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
+      - name: Vet and build AppKit GUI
+        run: |
+          go vet ./...
+          go build -trimpath -ldflags "-s -w" -o "$RUNNER_TEMP/socksgui-mac" ./cmd/socksgui-mac
+          echo "socksgui (AppKit): $(stat -f%z "$RUNNER_TEMP/socksgui-mac") bytes"
+
   desktop:
     runs-on: windows-latest
     defaults:

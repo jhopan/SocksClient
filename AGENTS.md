@@ -81,6 +81,45 @@ bash scripts/fetch-core.sh        # libbox.aar from the "core" release
   Do not create a fourth release; if one appears, the retention step is broken.
 - The `core` release is never deleted - the app builds fetch from it.
 
+## Three desktop GUIs (deliberately platform-native)
+
+Each desktop uses its own OS toolkit - do not replace any of them with a
+cross-platform Go GUI toolkit:
+
+| Platform | Package | Toolkit | Measured binary | Measured RAM (idle) |
+|---|---|---|---|---|
+| Windows | `desktop/` (package main) | `lxn/walk` (Win32) | ~10 MB | ~27 MB |
+| Linux | `desktop/cmd/socksgui-gtk` | GTK3 via cgo | ~5.9 MB | ~77 MB (mostly libgtk shared with the session) |
+| macOS | `desktop/cmd/socksgui-mac` | AppKit via cgo/ObjC | ~5.5 MB | not measured |
+
+Measured comparison that justifies this (same hello-world window): GTK3 1.07 MB /
+77 MB RAM, AppKit 1.06 MB, Gio 6.4 MB / 129 MB, Fyne 22.8 MB / 168 MB, Wails-Tauri
+needs WebKitGTK (92.6 MB installed on Debian). Native bindings win on both size
+and memory because the toolkit is already loaded by the desktop.
+
+Rules:
+
+- Both GUI packages are behind `//go:build linux && cgo` and
+  `//go:build darwin && cgo`: they only compile on their own platform, so
+  `ci-desktop.yml` has `gui-linux` and `gui-macos` jobs and
+  `build-desktop-release.yml` has the matching `linux`/`macos` jobs. Do not
+  remove them; a broken GUI is invisible otherwise.
+- All form/tunnel behaviour lives in `internal/guicore` (UI interface + state) and
+  `internal/engine` (core supervision). The platform packages only own widget
+  code and the thin `guicore.UI` adapter. Keep it that way - it is what makes the
+  GUI logic testable without a display.
+- `//export` functions must live in a file whose cgo preamble contains declarations
+  only; the C/ObjC definitions belong in the other file (`gtk_c.go`, `cocoa_c.go`).
+- GTK3 needs `libgtk-3-dev` to build and `libgtk-3-0` to run (declared in the .deb).
+  cgo cannot cross-compile the GUI, so the arm64 .deb ships the CLI only - that is
+  intentional and noted in the release.
+- macOS password goes to the Keychain (`security` CLI, see
+  `internal/settings/keychain_darwin.go`); on Linux it stays in
+  `~/.config/socksclient/settings.json` mode 0600.
+- Never call GTK/AppKit from a Go goroutine: all widget work happens in the
+  callbacks/timer on the main thread, and the `guicore` calls reached from there
+  are the only ones allowed to touch widgets.
+
 ## CLI for Linux and macOS (`socksctl`)
 
 - `desktop/cmd/socksctl/` is the same client for platforms where `lxn/walk` does

@@ -238,7 +238,24 @@ jobs:
             | `socksclient_${{ env.VERSION }}_arm64.deb` | Linux arm64 | same, for ARM boards and ARM VPS |
             | `SocksClient-linux-amd64-${{ env.VERSION }}.tar.gz` | Linux x86_64 | no-dpkg tarball with `install.sh` |
             | `SocksClient-linux-arm64-${{ env.VERSION }}.tar.gz` | Linux arm64 | no-dpkg tarball with `install.sh` |
-            | `SocksClient-macos-universal-${{ env.VERSION }}.tar.gz` | macOS Intel + Apple Silicon | universal binary, `install.sh` and a double-clickable launcher |
+            | `SocksClient-macos-universal-${{ env.VERSION }}.tar.gz` | macOS Intel + Apple Silicon | `SocksClient.app` (AppKit GUI, universal) + CLI + `install.sh` + double-clickable launcher |
+
+            ### GUI per platform
+
+            Each desktop uses its own OS toolkit, the same approach the Windows client
+            has always used, so the binary stays small and the toolkit is already in
+            memory:
+
+            | Platform | GUI | Toolkit | Binary | RAM (idle) |
+            |---|---|---|---|---|
+            | Windows | `socks-client.exe` | Win32 via `walk` | ~10 MB | ~27 MB |
+            | Linux | `socksgui` | GTK3 (cgo) | ~5.9 MB | ~77 MB (mostly libgtk shared with the session) |
+            | macOS | `SocksClient.app` | AppKit (cgo/ObjC) | ~5.5 MB | not measured (AppKit is shared with the OS) |
+
+            The Linux GUI is in the **amd64** package only: cgo cannot cross-compile it,
+            so the arm64 .deb keeps the CLI plus the browser UI. macOS ships one
+            universal binary; the app is unsigned, so Gatekeeper may need
+            `xattr -dr com.apple.quarantine SocksClient` once.
 
             ### What is in this build
             - TUN mode only, on a minimal sing-box core 1.14.1; the manifest requests Administrator, so Windows asks for elevation at launch
@@ -260,8 +277,10 @@ jobs:
             ### Install - Linux
             ```bash
             sudo dpkg -i socksclient_${{ env.VERSION }}_amd64.deb
-            sudo socksctl up  -host 10.0.0.1 -port 1080        # foreground, Ctrl+C to stop
-            sudo socksctl gui -host 10.0.0.1 -port 1080        # same tunnel, UI in the browser
+            socksclient-gui                                    # GTK3 GUI (asks for admin via pkexec)
+            # or from a terminal:
+            sudo socksgui
+            sudo socksctl up -host 10.0.0.1 -port 1080         # no GUI at all, Ctrl+C to stop
             sudo socksctl check -host 10.0.0.1 -port 1080      # validate against the core
             ```
             The package installs `/usr/bin/socksctl`, the core in
@@ -275,11 +294,12 @@ jobs:
             ### Install - macOS
             ```bash
             tar -xzf SocksClient-macos-universal-${{ env.VERSION }}.tar.gz
-            cd SocksClient && ./install.sh          # copies into /usr/local
+            ./SocksClient/install.sh                # GUI -> /usr/local + /Applications, CLI -> /usr/local
+            sudo socksgui                           # AppKit GUI (TUN needs root)
             sudo socksctl up -host 10.0.0.1 -port 1080
             ```
-            Or double-click `SocksClient.command` inside the archive: it asks for the
-            admin password and opens the browser UI. The binary is **not notarized**
+            Double-clicking `SocksClient.command` does the same thing: it asks for the
+            admin password and opens the GUI window. The binary is **not notarized**
             (no Apple Developer ID), so if Gatekeeper complains run
             `xattr -dr com.apple.quarantine SocksClient` once, or right-click and Open.
 
