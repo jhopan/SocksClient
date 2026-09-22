@@ -132,22 +132,32 @@ jobs:
       - name: Measure RSS under Xvfb
         run: |
           W="$RUNNER_TEMP/ramprobe"
-          sudo apt-get install -y -qq mesa-utils >/dev/null || true
+          # Xvfb dijalankan sendiri lalu DISPLAY di-export, supaya PID yang diukur
+          # adalah proses aplikasinya (bukan wrapper xvfb-run).
+          Xvfb :99 -screen 0 1280x800x24 >/dev/null 2>&1 &
+          XVFB=$!
+          export DISPLAY=:99
+          sleep 3
           measure() {
             name="$1"; bin="$2"
             echo "--- $name"
-            LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe xvfb-run -a -s "-screen 0 1280x800x24" "$bin" >"$W/$name.log" 2>&1 &
+            LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe "$bin" >"$W/$name.log" 2>&1 &
+            APP=$!
             sleep 12
-            pid=$(pgrep -f "$(basename "$bin")" | head -1)
-            if [ -n "$pid" ]; then
-              echo "$name: RSS=$(ps -o rss= -p "$pid" | tr -d ' ') kB  ($(awk "BEGIN{printf \"%.1f\", $(ps -o rss= -p "$pid")/1024}") MB), VSZ=$(ps -o vsz= -p "$pid" | tr -d ' ') kB, threads=$(ps -o nlwp= -p "$pid" | tr -d ' ')"
+            if kill -0 "$APP" 2>/dev/null; then
+              rss=$(ps -o rss= -p "$APP" | tr -d ' ')
+              vsz=$(ps -o vsz= -p "$APP" | tr -d ' ')
+              th=$(ps -o nlwp= -p "$APP" | tr -d ' ')
+              echo "RESULT $name: PID=$APP RSS=${rss}kB ($(awk "BEGIN{printf \"%.1f\", $rss/1024}") MB) VSZ=${vsz}kB threads=$th"
             else
-              echo "$name: GAGAL jalan - log:"; tail -3 "$W/$name.log"
+              echo "RESULT $name: GAGAL jalan - log:"; tail -4 "$W/$name.log"
             fi
-            pkill -f "$(basename "$bin")" || true
-            pkill -f Xvfb || true
+            kill "$APP" 2>/dev/null || true
             sleep 2
           }
           measure gtkram "$W/gtk/gtkram"
           measure gioram "$W/gio/gioram"
           measure fyneram "$W/fyne/fyneram"
+          # pembanding: proses Go tanpa GUI (server HTTP stdlib)
+          echo "--- (pembanding) runtime Go tanpa GUI"
+          kill $XVFB 2>/dev/null || true
