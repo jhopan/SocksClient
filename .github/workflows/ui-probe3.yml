@@ -1,0 +1,153 @@
+name: UI RAM probe (sementara)
+
+# Sekali pakai: ukur RSS nyata tiga kandidat GUI Linux di bawah Xvfb.
+# Dihapus setelah angkanya didapat.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ram:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
+      - name: Install deps (GTK3 + headless GL + Xvfb)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libgtk-3-dev xvfb libgl1-mesa-dev libgl1-mesa-dri \
+            mesa-utils xorg-dev libwayland-dev libxkbcommon-dev libxkbcommon-x11-dev \
+            libx11-xcb-dev libegl1-mesa-dev libxcursor-dev libxfixes-dev libvulkan-dev >/dev/null
+
+      - name: Build GTK3 app (cgo)
+        run: |
+          W="$RUNNER_TEMP/ramprobe"; mkdir -p "$W/gtk" && cd "$W/gtk"
+          cat > main.go <<'EOF'
+          package main
+
+          /*
+          #cgo pkg-config: gtk+-3.0
+          #include <gtk/gtk.h>
+          static void on_connect(GtkWidget *w, gpointer d) { gtk_label_set_text(GTK_LABEL(d), "Connected"); }
+          static void run_app(void) {
+              gtk_init(NULL, NULL);
+              GtkWidget *win = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+              gtk_window_set_title(GTK_WINDOW(win), "Socks Client");
+              gtk_window_set_default_size(GTK_WINDOW(win), 420, 520);
+              GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
+              GtkWidget *entry = gtk_entry_new();
+              gtk_entry_set_placeholder_text(GTK_ENTRY(entry), "10.0.0.1");
+              GtkWidget *label = gtk_label_new("Status: Disconnected");
+              GtkWidget *btn = gtk_button_new_with_label("Connect");
+              g_signal_connect(btn, "clicked", G_CALLBACK(on_connect), label);
+              gtk_box_pack_start(GTK_BOX(box), entry, FALSE, FALSE, 0);
+              gtk_box_pack_start(GTK_BOX(box), btn, FALSE, FALSE, 0);
+              gtk_box_pack_start(GTK_BOX(box), label, FALSE, FALSE, 0);
+              gtk_container_add(GTK_CONTAINER(win), box);
+              g_signal_connect(win, "destroy", G_CALLBACK(gtk_main_quit), NULL);
+              gtk_widget_show_all(win);
+              gtk_main();
+          }
+          */
+          import "C"
+          func main() { C.run_app() }
+          EOF
+          printf 'module gtkram\n\ngo 1.25\n' > go.mod
+          go build -ldflags="-s -w" -o gtkram .
+
+      - name: Build Gio app
+        run: |
+          W="$RUNNER_TEMP/ramprobe"; mkdir -p "$W/gio" && cd "$W/gio"
+          cat > main.go <<'EOF'
+          package main
+
+          import (
+              "gioui.org/app"
+              "gioui.org/op"
+              "gioui.org/unit"
+              "gioui.org/widget"
+              "gioui.org/widget/material"
+          )
+
+          func main() {
+              go func() {
+                  w := new(app.Window)
+                  w.Option(app.Title("Socks Client"), app.Size(unit.Dp(420), unit.Dp(520)))
+                  var ops op.Ops
+                  th := material.NewTheme()
+                  var btn widget.Clickable
+                  for {
+                      e := w.Event()
+                      switch e := e.(type) {
+                      case app.DestroyEvent:
+                          return
+                      case app.FrameEvent:
+                          gtx := app.NewContext(&ops, e)
+                          material.Button(th, &btn, "Connect").Layout(gtx)
+                          e.Frame(gtx.Ops)
+                      }
+                  }
+              }()
+              app.Main()
+          }
+          EOF
+          printf 'module gioram\n\ngo 1.25\n' > go.mod
+          go mod tidy >/dev/null 2>&1
+          go build -ldflags="-s -w" -o gioram .
+
+      - name: Build Fyne app
+        run: |
+          W="$RUNNER_TEMP/ramprobe"; mkdir -p "$W/fyne" && cd "$W/fyne"
+          cat > main.go <<'EOF'
+          package main
+
+          import (
+              "fyne.io/fyne/v2/app"
+              "fyne.io/fyne/v2/container"
+              "fyne.io/fyne/v2/widget"
+          )
+
+          func main() {
+              a := app.New()
+              w := a.NewWindow("Socks Client")
+              status := widget.NewLabel("Status: Disconnected")
+              w.SetContent(container.NewVBox(
+                  widget.NewLabel("Host"), widget.NewEntry(),
+                  widget.NewButton("Connect", func() { status.SetText("Connected") }),
+                  status,
+              ))
+              w.ShowAndRun()
+          }
+          EOF
+          printf 'module fyneram\n\ngo 1.25\n' > go.mod
+          go mod tidy >/dev/null 2>&1
+          go build -ldflags="-s -w" -o fyneram .
+
+      - name: Measure RSS under Xvfb
+        run: |
+          W="$RUNNER_TEMP/ramprobe"
+          sudo apt-get install -y -qq mesa-utils >/dev/null || true
+          measure() {
+            name="$1"; bin="$2"
+            echo "--- $name"
+            LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe xvfb-run -a -s "-screen 0 1280x800x24" "$bin" >"$W/$name.log" 2>&1 &
+            sleep 12
+            pid=$(pgrep -f "$(basename "$bin")" | head -1)
+            if [ -n "$pid" ]; then
+              echo "$name: RSS=$(ps -o rss= -p "$pid" | tr -d ' ') kB  ($(awk "BEGIN{printf \"%.1f\", $(ps -o rss= -p "$pid")/1024}") MB), VSZ=$(ps -o vsz= -p "$pid" | tr -d ' ') kB, threads=$(ps -o nlwp= -p "$pid" | tr -d ' ')"
+            else
+              echo "$name: GAGAL jalan - log:"; tail -3 "$W/$name.log"
+            fi
+            pkill -f "$(basename "$bin")" || true
+            pkill -f Xvfb || true
+            sleep 2
+          }
+          measure gtkram "$W/gtk/gtkram"
+          measure gioram "$W/gio/gioram"
+          measure fyneram "$W/fyne/fyneram"
