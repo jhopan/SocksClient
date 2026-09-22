@@ -99,6 +99,9 @@ and memory because the toolkit is already loaded by the desktop.
 
 Rules:
 
+- On Linux/macOS `go vet ./...` cannot work: the root package (`desktop/`) is
+  Windows-only by construction. The platform CI jobs scope it to
+  `./internal/... ./cmd/socksctl ./cmd/socksgui-<platform>`; keep that scope.
 - Both GUI packages are behind `//go:build linux && cgo` and
   `//go:build darwin && cgo`: they only compile on their own platform, so
   `ci-desktop.yml` has `gui-linux` and `gui-macos` jobs and

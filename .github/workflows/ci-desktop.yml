@@ -35,7 +35,9 @@ jobs:
 
       - name: Vet and build GTK3 GUI
         run: |
-          go vet ./...
+          # Paket root (desktop/) hanya untuk Windows, jadi ./... tidak bisa di-vet
+          # di sini; yang relevan: paket portabel + GUI Linux.
+          go vet ./internal/... ./cmd/socksctl ./cmd/socksgui-gtk
           go build -trimpath -ldflags "-s -w" -o "$RUNNER_TEMP/socksgui-gtk" ./cmd/socksgui-gtk
           echo "socksgui (GTK3): $(stat -c%s "$RUNNER_TEMP/socksgui-gtk") bytes"
 
@@ -55,7 +57,7 @@ jobs:
 
       - name: Vet and build AppKit GUI
         run: |
-          go vet ./...
+          go vet ./internal/... ./cmd/socksctl ./cmd/socksgui-mac
           go build -trimpath -ldflags "-s -w" -o "$RUNNER_TEMP/socksgui-mac" ./cmd/socksgui-mac
           echo "socksgui (AppKit): $(stat -f%z "$RUNNER_TEMP/socksgui-mac") bytes"
 
