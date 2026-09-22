@@ -16,7 +16,7 @@ echo "== build socksctl $VERSION"
 # GUI GTK3: cgo hanya bisa dibangun untuk arsitektur host, jadi GUI masuk ke
 # paket amd64. Paket arm64 tetap dapat CLI (+ UI browser) - dicatat di rilis.
 echo "== build socksgui (GTK3, amd64)"
-(cd "$DESKTOP" && go build -trimpath -ldflags "-s -w" -o "$OUT/bin/socksgui-amd64" ./cmd/socksgui-gtk)
+(cd "$DESKTOP" && CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o "$OUT/bin/socksgui-amd64" ./cmd/socksgui-gtk)
 
 for arch in amd64 arm64; do
   echo "== ambil core linux-$arch"

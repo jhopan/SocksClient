@@ -11,7 +11,9 @@ mkdir -p "$OUT/bin" "$OUT/core"
 
 echo "== build socksgui (AppKit) $VERSION (darwin amd64 + arm64)"
 for arch in amd64 arm64; do
-  (cd "$DESKTOP" && GOOS=darwin GOARCH=$arch go build -trimpath -ldflags "-s -w" -o "$OUT/bin/socksgui-$arch" ./cmd/socksgui-mac)
+  # CGO_ENABLED=1 wajib: saat GOARCH berbeda dari host, cgo mati otomatis dan
+  # seluruh file GUI (build tag `darwin && cgo`) akan ter-exclude.
+  (cd "$DESKTOP" && CGO_ENABLED=1 GOOS=darwin GOARCH=$arch go build -trimpath -ldflags "-s -w" -o "$OUT/bin/socksgui-$arch" ./cmd/socksgui-mac)
 done
 
 echo "== build socksctl $VERSION (darwin amd64 + arm64)"
