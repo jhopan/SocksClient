@@ -2,13 +2,13 @@
 
 # Socks Client
 
-**v1.6.0** — SOCKS5 tunnel client for Android, Windows, Linux and macOS
+**v1.7.0** — SOCKS5 tunnel client for Android, Windows, Linux and macOS
 
 Connect a device to your SOCKS5 hotspot server and route **all** traffic through
 it: TCP, UDP and DNS. One mode, tuned for networks where other clients break.
 
-[![Download APK](https://img.shields.io/badge/Android-APK%20v1.6.0-3ddc84?style=for-the-badge&logo=android&logoColor=white)](../../releases/latest)
-[![Download Desktop](https://img.shields.io/badge/Windows-Installer%20v1.6.0-0078d4?style=for-the-badge&logo=windows&logoColor=white)](../../releases/latest)
+[![Download APK](https://img.shields.io/badge/Android-APK%20v1.7.0-3ddc84?style=for-the-badge&logo=android&logoColor=white)](../../releases/latest)
+[![Download Desktop](https://img.shields.io/badge/Windows-Installer%20v1.7.0-0078d4?style=for-the-badge&logo=windows&logoColor=white)](../../releases/latest)
 [![Release](https://img.shields.io/github/v/release/jhopan/SocksClient?style=for-the-badge&color=blue)](../../releases)
 [![Linux](https://img.shields.io/badge/Linux-.deb%20%2B%20tarball-fcc624?style=for-the-badge&logo=linux&logoColor=black)](../../releases/latest)
 [![macOS](https://img.shields.io/badge/macOS-universal%20binary-000000?style=for-the-badge&logo=apple&logoColor=white)](../../releases/latest)
@@ -110,26 +110,36 @@ loopback `mixed` inbound on `127.0.0.1:2081` and the probe is sent through it, w
 means sing-box performs the request over `socks-out`. Both paths were measured on a
 real machine: `204` in 0.22-0.39 s, with `strict_route` enabled.
 
-## Three desktops, one engine
+## One GUI, three desktops
 
-Each platform gets a GUI built on **its own OS toolkit** - the same trick the
-Windows client has always used - so the binary stays small and the toolkit is
-already in memory:
+All three desktops are the same Go program: [`cmd/socksgui-gio`](desktop/cmd/socksgui-gio)
+using [Gio](https://gioui.org). One codebase, one splash, one flow everywhere.
 
-| Platform | GUI | Toolkit | Binary | RAM (idle) |
-|---|---|---|---|---|
-| Windows | `socks-client.exe` | Win32 via `lxn/walk` | ~10 MB | ~27 MB |
-| Linux | `socksgui` | GTK3 via cgo | ~5.9 MB | ~77 MB (mostly libraries shared with the desktop session) |
-| macOS | `SocksClient.app` | AppKit via cgo/ObjC | ~5.5 MB | not measured (AppKit is shared with the OS) |
+| Platform | Window | Built |
+|---|---|---|
+| Windows | `SocksClient.exe` (installed by `SocksClientDesktop_Setup_v*.exe`) | `-H windowsgui` + manifest `requireAdministrator` + icon |
+| Linux | `socksgui` (inside the amd64 .deb, started from the menu via pkexec) | cgo + X11/EGL |
+| macOS | `SocksClient.app` (universal) | cgo, `lipo` x86_64 + arm64 |
 
-All three call the same Go logic: `internal/boxcfg` renders the sing-box config,
-`internal/ping` runs the HTTP ping, `internal/engine` supervises the core, and
-`internal/guicore` holds the form/settings behaviour. The CLI (`socksctl`) shares
-`boxcfg` and `ping` too. Nothing about the tunnel depends on which GUI is open:
-`sudo socksctl up` runs it with no GUI at all (that is how a headless Linux box
-or a systemd service uses it).
+The window itself: a 2.5 s splash with the credit and the three usage steps, then
+host / port / username / password (both optional), an HTTP ping switch, one
+Connect button and one status line. Nothing else.
 
-## How it works
+Connect runs a real preflight before the tunnel exists - host must be an IP,
+then a TCP connection, then the SOCKS5 greeting and login - and each stage is
+shown as it happens (`internal/engine.Preflight`). Only after that does the core
+start with the shared config from `internal/boxcfg`, and the HTTP ping
+(`internal/ping`, `GET http://www.gstatic.com/generate_204`, every 30 s) runs
+through the tunnel.
+
+The core process is spawned with `CREATE_NO_WINDOW`, so no console window ever
+appears behind the app: `sing-box.exe` is a console binary and would otherwise
+get its own terminal window when started from a GUI process.
+
+Still shipped alongside: the CLI (`socksctl`, Linux/macOS) which runs the same
+tunnel with no GUI at all, for servers and systemd.
+
+## How it works## How it works
 
 ```
 app -> TUN (gvisor, MTU 1400) -> sing-box -> SOCKS5 -> your server -> internet

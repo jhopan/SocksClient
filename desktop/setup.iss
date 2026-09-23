@@ -3,9 +3,9 @@
 ; Download: https://jrsoftware.org/isdl.php
 
 #define MyAppName "Socks Client Desktop"
-#define MyAppVersion "1.6.0"
+#define MyAppVersion "1.7.0"
 #define MyAppPublisher "JhopanStore"
-#define MyAppExeName "socks-client.exe"
+#define MyAppExeName "SocksClient.exe"
 #define MyAppURL "https://github.com/jhopan/SocksClient"
 
 [Setup]
@@ -42,7 +42,7 @@ Name: "desktopicon"; Description: "Create a &desktop icon"; GroupDescription: "A
 Name: "autostart"; Description: "Start with &Windows"; GroupDescription: "Startup:"
 
 [Files]
-Source: "socks-client.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "SocksClient.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "embed/sing-box.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
@@ -54,8 +54,9 @@ Name: "{commonstartup}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall skipifsilent
 
+; Catatan: {localappdata}\SocksClientDesktop TIDAK dihapus (berisi settings.json
+; pengguna; menghapusnya juga akan menghapus setelan saat upgrade).
 [UninstallDelete]
-Type: filesandordirs; Name: "{localappdata}\SocksClientDesktop"
 Type: files; Name: "{app}\config.json"
 Type: files; Name: "{app}\settings.json"
 Type: files; Name: "{app}\sing-box.exe"

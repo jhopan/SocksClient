@@ -56,11 +56,14 @@ jobs:
         with:
           go-version: '1.25'
 
-      # GUI GTK3 dibangun di sini (cgo), jadi header GTK3 harus ada.
+      # GUI Gio dibangun di sini (cgo), jadi header EGL/X11 harus ada.
       - name: Install GTK3 dev
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq libgtk-3-dev >/dev/null
+          sudo apt-get install -y -qq \
+            libgl1-mesa-dev xorg-dev libwayland-dev libxkbcommon-dev \
+            libegl1-mesa-dev libx11-xcb-dev libxkbcommon-x11-dev \
+            libxcursor-dev libxfixes-dev libvulkan-dev >/dev/null
 
       - name: Build .deb + tarballs
         env:
@@ -156,10 +159,11 @@ jobs:
       - name: Compile Resources
         run: |
           windres -o rsrc_windows_amd64.syso app.rc
+          windres -o cmd/socksgui-gio/rsrc_windows_amd64.syso cmd/socksgui-gio/app.rc
 
       - name: Build exe
         run: |
-          go build -ldflags="-s -w -H windowsgui" -o socks-client.exe .
+          CGO_ENABLED=1 go build -trimpath -ldflags="-s -w -H windowsgui" -o SocksClient.exe ./cmd/socksgui-gio
 
       - name: Build Installer
         run: |
@@ -189,7 +193,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: SocksClientDesktop-exe
-          path: desktop/socks-client.exe
+          path: desktop/SocksClient.exe
 
       # Kebijakan rilis: hanya tiga rilis yang dipertahankan - core, APK terbaru,
       # installer terbaru. Rilis lama dihapus di sini supaya halaman Releases tetap
@@ -248,20 +252,20 @@ jobs:
 
             ### GUI per platform
 
-            Each desktop uses its own OS toolkit, the same approach the Windows client
-            has always used, so the binary stays small and the toolkit is already in
-            memory:
+            One Go codebase (Gio) draws all three desktops, so the window, the splash
+            and the whole flow are identical everywhere:
 
             | Platform | GUI | Toolkit | Binary | RAM (idle) |
             |---|---|---|---|---|
-            | Windows | `socks-client.exe` | Win32 via `walk` | ~10 MB | ~27 MB |
-            | Linux | `socksgui` | GTK3 (cgo) | ~5.9 MB | ~77 MB (mostly libgtk shared with the session) |
-            | macOS | `SocksClient.app` | AppKit (cgo/ObjC) | ~5.5 MB | not measured (AppKit is shared with the OS) |
+            | Windows | `SocksClient.exe` | Gio (cgo) | ~12.4 MB | ~130 MB with software GL (less with a GPU) |
+            | Linux | `socksgui` | Gio (cgo) | ~12 MB | same binary, same numbers |
+            | macOS | `SocksClient.app` | Gio (cgo) | ~12 MB | same binary, same numbers |
 
             The Linux GUI is in the **amd64** package only: cgo cannot cross-compile it,
             so the arm64 .deb keeps the CLI plus the browser UI. macOS ships one
             universal binary; the app is unsigned, so Gatekeeper may need
-            `xattr -dr com.apple.quarantine SocksClient` once.
+            `xattr -dr com.apple.quarantine SocksClient` once. The core process is
+            spawned with CREATE_NO_WINDOW, so no console window appears behind the app.
 
             ### What is in this build
             - TUN mode only, on a minimal sing-box core 1.14.1; the manifest requests Administrator, so Windows asks for elevation at launch

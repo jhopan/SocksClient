@@ -81,47 +81,47 @@ bash scripts/fetch-core.sh        # libbox.aar from the "core" release
   Do not create a fourth release; if one appears, the retention step is broken.
 - The `core` release is never deleted - the app builds fetch from it.
 
-## Three desktop GUIs (deliberately platform-native)
+## Desktop GUI: one Gio codebase
 
-Each desktop uses its own OS toolkit - do not replace any of them with a
-cross-platform Go GUI toolkit:
+All three desktops run `desktop/cmd/socksgui-gio` (Gio, cgo). It is behind
+`//go:build (linux || darwin || windows) && cgo`; the Go logic it uses lives in
+`internal/engine` (core supervision + `Preflight`), `internal/ping`,
+`internal/settings` and `internal/winutil`, so the GUI only owns widgets.
 
-| Platform | Package | Toolkit | Measured binary | Measured RAM (idle) |
-|---|---|---|---|---|
-| Windows | `desktop/` (package main) | `lxn/walk` (Win32) | ~10 MB | ~27 MB |
-| Linux | `desktop/cmd/socksgui-gtk` | GTK3 via cgo | ~5.9 MB | ~77 MB (mostly libgtk shared with the session) |
-| macOS | `desktop/cmd/socksgui-mac` | AppKit via cgo/ObjC | ~5.5 MB | not measured |
+Rules that matter:
 
-Measured comparison that justifies this (same hello-world window): GTK3 1.07 MB /
-77 MB RAM, AppKit 1.06 MB, Gio 6.4 MB / 129 MB, Fyne 22.8 MB / 168 MB, Wails-Tauri
-needs WebKitGTK (92.6 MB installed on Debian). Native bindings win on both size
-and memory because the toolkit is already loaded by the desktop.
-
-Rules:
-
+- `sing-box.exe` is a **console** binary. Any GUI process spawning it must set
+  `HideWindow` + `CREATE_NO_WINDOW` (`internal/engine/spawn_windows.go`), or
+  Windows opens a black terminal window on top of the app. The old walk app did
+  this too; do not drop it.
+- Killing the core on Windows goes through `taskkill /F /T`
+  (`internal/engine/kill_windows.go`) or the wintun adapter stays behind.
+- `internal/settings` on Windows stores state in
+  `%LOCALAPPDATA%\SocksClientDesktop` (the same folder the walk app used) and
+  keeps the password in `pass.enc` through DPAPI. It also reads the old
+  `{"pass_enc": ...}` field, so an update does not ask for the password again.
+- The Windows binary embeds `app.manifest` (`requireAdministrator`) and `app.ico`
+  through `cmd/socksgui-gio/app.rc` -> `rsrc_windows_amd64.syso`; the release job
+  runs `windres` for it. The named mutex is `SocksClientDesktopMutex`, the same
+  name `setup.iss` watches through `AppMutex`.
+- `setup.iss` must not delete `{localappdata}\SocksClientDesktop`: that would wipe
+  the user's settings on upgrade.
 - On Linux/macOS `go vet ./...` cannot work: the root package (`desktop/`) is
-  Windows-only by construction. The platform CI jobs scope it to
-  `./internal/... ./cmd/socksctl ./cmd/socksgui-<platform>`; keep that scope.
-- Both GUI packages are behind `//go:build linux && cgo` and
-  `//go:build darwin && cgo`: they only compile on their own platform, so
-  `ci-desktop.yml` has `gui-linux` and `gui-macos` jobs and
-  `build-desktop-release.yml` has the matching `linux`/`macos` jobs. Do not
-  remove them; a broken GUI is invisible otherwise.
-- All form/tunnel behaviour lives in `internal/guicore` (UI interface + state) and
-  `internal/engine` (core supervision). The platform packages only own widget
-  code and the thin `guicore.UI` adapter. Keep it that way - it is what makes the
-  GUI logic testable without a display.
-- `//export` functions must live in a file whose cgo preamble contains declarations
-  only; the C/ObjC definitions belong in the other file (`gtk_c.go`, `cocoa_c.go`).
-- GTK3 needs `libgtk-3-dev` to build and `libgtk-3-0` to run (declared in the .deb).
-  cgo cannot cross-compile the GUI, so the arm64 .deb ships the CLI only - that is
-  intentional and noted in the release.
-- macOS password goes to the Keychain (`security` CLI, see
-  `internal/settings/keychain_darwin.go`); on Linux it stays in
-  `~/.config/socksclient/settings.json` mode 0600.
-- Never call GTK/AppKit from a Go goroutine: all widget work happens in the
-  callbacks/timer on the main thread, and the `guicore` calls reached from there
-  are the only ones allowed to touch widgets.
+  Windows-only. Scope it to `./internal/... ./cmd/socksctl ./cmd/socksgui-gio`.
+- Gio needs the toolkit headers only at build time: `libgl1-mesa-dev xorg-dev
+  libwayland-dev libxkbcommon-dev libegl1-mesa-dev libx11-xcb-dev
+  libxkbcommon-x11-dev libxcursor-dev libxfixes-dev libvulkan-dev` on Linux.
+  cgo cannot cross-compile, so the arm64 .deb ships the CLI only.
+- Gio has no automatic dark mode and does not paint the window background: the
+  palette is four colours in `ui.go` and each frame starts with
+  `paint.Fill(gtx.Ops, palet.Bg)`.
+
+Measured alternatives, for the record (same hello-world window): native GTK3
+1.07 MB / 77 MB RAM, AppKit 1.06 MB, Gio 6.4 MB / 129 MB, Fyne 22.8 MB / 168 MB,
+Wails-Tauri needs WebKitGTK (92.6 MB installed on Debian). Gio was chosen for
+the single codebase; the earlier native shells (`cmd/socksgui-gtk`,
+`cmd/socksgui-mac`, and the walk app in `desktop/`) are kept in the tree but are
+no longer shipped.
 
 ## CLI for Linux and macOS (`socksctl`)
 

@@ -9,7 +9,7 @@ import (
 
 // Nama mutex ini dipakai installer (AppMutex di setup.iss): installer tahu
 // aplikasi sedang berjalan tanpa memanggil apa pun ke proses kita.
-const mutexName = "SocksClientDesktop"
+const mutexName = "SocksClientDesktopMutex"
 
 var handleMutex uintptr
 

@@ -15,8 +15,9 @@ echo "== build socksctl $VERSION"
 
 # GUI GTK3: cgo hanya bisa dibangun untuk arsitektur host, jadi GUI masuk ke
 # paket amd64. Paket arm64 tetap dapat CLI (+ UI browser) - dicatat di rilis.
-echo "== build socksgui (GTK3, amd64)"
-(cd "$DESKTOP" && CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o "$OUT/bin/socksgui-amd64" ./cmd/socksgui-gtk)
+echo "== build socksgui (Gio, amd64)"
+# Gio butuh cgo + header EGL/X11 (lihat job linux di build-desktop-release.yml).
+(cd "$DESKTOP" && CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o "$OUT/bin/socksgui-amd64" ./cmd/socksgui-gio)
 
 for arch in amd64 arm64; do
   echo "== ambil core linux-$arch"
@@ -108,7 +109,7 @@ Description: SOCKS5 tunnel client (TUN) - Socks Client
  Klien SOCKS5 untuk Linux. Seluruh trafik (TCP, UDP, DNS) dialirkan keluar
  melalui server SOCKS5, tanpa DNS leak dan tanpa IPv6 bocor.
  .
- Isi paket: /usr/bin/socksgui (GUI GTK3, di paket amd64), /usr/bin/socksctl
+ Isi paket: /usr/bin/socksgui (GUI Gio, di paket amd64), /usr/bin/socksctl
  (CLI + UI browser), core sing-box minimal di /usr/lib/socksclient/sing-box,
  unit systemd socksclient.service (tidak
  diaktifkan otomatis), dan /etc/socksclient.conf.example.
@@ -139,7 +140,7 @@ mkdir -p /usr/local/lib/socksclient
 install -m 0755 "$dir/sing-box" /usr/local/lib/socksclient/sing-box
 if [ -f "$dir/socksgui" ]; then
   install -m 0755 "$dir/socksgui" /usr/local/bin/socksgui
-  echo "GUI GTK3 terpasang: sudo socksgui"
+  echo "GUI Gio terpasang: sudo socksgui"
 fi
 echo "terpasang: /usr/local/bin/socksctl"
 echo "pakai: sudo socksctl up -host <IP> -port <PORT>"

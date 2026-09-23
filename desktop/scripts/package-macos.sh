@@ -9,11 +9,11 @@ OUT="${OUT:-$DESKTOP/dist}"
 VERSION="${VERSION:-$(grep 'appVersion' "$DESKTOP/main.go" | head -1 | sed 's/.*"\(.*\)".*/\1/')}"
 mkdir -p "$OUT/bin" "$OUT/core"
 
-echo "== build socksgui (AppKit) $VERSION (darwin amd64 + arm64)"
+echo "== build socksgui (Gio) $VERSION (darwin amd64 + arm64)"
 for arch in amd64 arm64; do
   # CGO_ENABLED=1 wajib: saat GOARCH berbeda dari host, cgo mati otomatis dan
   # seluruh file GUI (build tag `darwin && cgo`) akan ter-exclude.
-  (cd "$DESKTOP" && CGO_ENABLED=1 GOOS=darwin GOARCH=$arch go build -trimpath -ldflags "-s -w" -o "$OUT/bin/socksgui-$arch" ./cmd/socksgui-mac)
+  (cd "$DESKTOP" && CGO_ENABLED=1 GOOS=darwin GOARCH=$arch go build -trimpath -ldflags "-s -w" -o "$OUT/bin/socksgui-$arch" ./cmd/socksgui-gio)
 done
 
 echo "== build socksctl $VERSION (darwin amd64 + arm64)"
@@ -73,7 +73,7 @@ sudo mkdir -p /usr/local/lib/socksclient
 sudo install -m 0755 "$dir/sing-box" /usr/local/lib/socksclient/sing-box
 if [ -f "$dir/socksgui" ]; then
   sudo install -m 0755 "$dir/socksgui" /usr/local/bin/socksgui
-  echo "GUI AppKit terpasang: sudo socksgui"
+  echo "GUI Gio terpasang: sudo socksgui"
 fi
 if [ -d "$dir/../SocksClient.app" ]; then
   sudo rm -rf /Applications/SocksClient.app
@@ -109,7 +109,7 @@ Socks Client - macOS
 ====================
 
 Isi:
-  SocksClient.app      GUI AppKit (universal: Intel + Apple Silicon, ~5,5 MB)
+  SocksClient.app      GUI Gio (universal: Intel + Apple Silicon)
   SocksClient/socksgui GUI yang sama sebagai binary lepas
   SocksClient/socksctl CLI (TUN di terminal + UI browser)
   SocksClient/sing-box core minimal

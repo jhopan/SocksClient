@@ -28,7 +28,7 @@ import (
 	"socks-client-desktop/internal/boxcfg"
 )
 
-const appVersion = "1.6.0"
+const appVersion = "1.7.0"
 
 func main() {
 	if len(os.Args) < 2 {
