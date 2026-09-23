@@ -71,3 +71,31 @@ func TestEmptyPasswordRemovesBlob(t *testing.T) {
 		t.Fatalf("masih ada password: %q", got)
 	}
 }
+
+// Kalau file utama kehilangan alamat server, alamat harus diambil dari salinan
+// cadangan (settings.json.bak). Cadangan berisi isi SEBELUM penyimpanan
+// terakhir, jadi yang kembali adalah alamat versi sebelumnya - intinya alamat
+// tidak hilang begitu saja.
+func TestLoadFallsBackToBackup(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("LOCALAPPDATA", dir)
+	if err := Save(Settings{Host: "10.79.67.123", Port: 1080, User: "u", Ping: true}); err != nil {
+		t.Fatalf("Save pertama: %v", err)
+	}
+	// Save kedua menulis cadangan berisi isi lama, lalu menimpa file utama.
+	if err := Save(Settings{Host: "192.168.1.9", Port: 1081}); err != nil {
+		t.Fatalf("Save kedua: %v", err)
+	}
+	bak := filepath.Join(dir, "SocksClientDesktop", "settings.json.bak")
+	if _, err := os.Stat(bak); err != nil {
+		t.Fatalf("cadangan tidak dibuat: %v", err)
+	}
+	// Sekarang rusak file utamanya seperti kejadian nyata: host dikosongkan.
+	main := filepath.Join(dir, "SocksClientDesktop", "settings.json")
+	if err := os.WriteFile(main, []byte(`{"host":"","port":1080}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := Load().Host; got != "10.79.67.123" {
+		t.Fatalf("host tidak dipulihkan dari cadangan (harap versi sebelumnya): %q", got)
+	}
+}

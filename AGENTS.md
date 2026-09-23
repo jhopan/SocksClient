@@ -106,12 +106,20 @@ Rules that matter:
   name `setup.iss` watches through `AppMutex`.
 - `setup.iss` must not delete `{localappdata}\SocksClientDesktop`: that would wipe
   the user's settings on upgrade.
+- Two more guards on the same concern: `simpanSetelan()` refuses to save while Host
+  is empty (a stray click must not erase the server address), and `settings.Save`
+  keeps the previous file as `settings.json.bak`, which `Load` falls back to when
+  the main file is missing or has an empty host.
 - On Linux/macOS `go vet ./...` cannot work: the root package (`desktop/`) is
   Windows-only. Scope it to `./internal/... ./cmd/socksctl ./cmd/socksgui-gio`.
 - Gio needs the toolkit headers only at build time: `libgl1-mesa-dev xorg-dev
   libwayland-dev libxkbcommon-dev libegl1-mesa-dev libx11-xcb-dev
   libxkbcommon-x11-dev libxcursor-dev libxfixes-dev libvulkan-dev` on Linux.
   cgo cannot cross-compile, so the arm64 .deb ships the CLI only.
+- The splash countdown starts at the **first painted frame**, not at process
+  start: with UAC + Gio init in front of it, a process-start timer has already run
+  out by the time the window appears, which looks exactly like "the splash does
+  not work".
 - Gio has no automatic dark mode and does not paint the window background: the
   palette is four colours in `ui.go` and each frame starts with
   `paint.Fill(gtx.Ops, palet.Bg)`.

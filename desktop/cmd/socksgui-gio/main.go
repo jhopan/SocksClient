@@ -112,14 +112,10 @@ func terbuka(st settings.Settings, auto bool) {
 			}
 		}()
 
-		selesai := time.Now().Add(splashLama)
-		time.AfterFunc(splashLama, func() {
-			win.Invalidate()
-			if auto {
-				time.Sleep(200 * time.Millisecond)
-				sambung()
-			}
-		})
+		// Hitungan splash dimulai saat FRAME PERTAMA tergambar, bukan saat proses
+		// dibuat: kalau dihitung dari awal proses, waktu habis saat UAC + init Gio
+		// masih berjalan, jadi yang terlihat langsung form (splash "tidak jalan").
+		var awalSplash time.Time
 
 		for {
 			e := win.Event()
@@ -129,8 +125,17 @@ func terbuka(st settings.Settings, auto bool) {
 				os.Exit(0)
 			case app.FrameEvent:
 				gtx := app.NewContext(&ops, e)
+				if awalSplash.IsZero() {
+					awalSplash = time.Now()
+					time.AfterFunc(splashLama, func() {
+						win.Invalidate()
+						if auto {
+							sambung()
+						}
+					})
+				}
 				paint.Fill(gtx.Ops, th.Palette.Bg)
-				if time.Now().Before(selesai) && !btnMulai.Clicked(gtx) {
+				if time.Since(awalSplash) < splashLama && !btnMulai.Clicked(gtx) {
 					splash(gtx, th)
 				} else {
 					form(gtx, th)
@@ -230,6 +235,11 @@ func segarkan() {
 }
 
 func simpanSetelan() {
+	// Jangan timpa setelan yang sudah ada dengan form kosong (mis. tombol ping
+	// diklik sebelum Host diisi): itu akan menghapus alamat server pengguna.
+	if strings.TrimSpace(edHost.Text()) == "" {
+		return
+	}
 	port := 1080
 	if _, err := fmt.Sscanf(strings.TrimSpace(edPort.Text()), "%d", &port); err != nil {
 		port = 1080

@@ -58,6 +58,17 @@ func Path() (string, error) {
 	return filepath.Join(dir, "settings.json"), nil
 }
 
+// pathCadangan adalah salinan setelan terakhir yang isinya masih lengkap.
+// Dipakai kalau file utama hilang atau kehilangan alamat server (mis. karena
+// form kosong pernah tersimpan).
+func pathCadangan() (string, error) {
+	p, err := Path()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(filepath.Dir(p), "settings.json.bak"), nil
+}
+
 // Load membaca settings; file yang belum ada menghasilkan nilai default.
 func Load() Settings {
 	s := Settings{Port: 1080}
@@ -67,9 +78,28 @@ func Load() Settings {
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return s
+		// file utama hilang: pakai salinan cadangan kalau ada
+		if bak, err2 := pathCadangan(); err2 == nil {
+			if data2, err3 := os.ReadFile(bak); err3 == nil {
+				json.Unmarshal(data2, &s)
+			}
+		}
 	}
 	json.Unmarshal(data, &s)
+	if s.Host == "" {
+		// alamat server hilang di file utama: ambil dari cadangan
+		if bak, err := pathCadangan(); err == nil {
+			if data2, err := os.ReadFile(bak); err == nil {
+				var b Settings
+				if json.Unmarshal(data2, &b) == nil && b.Host != "" {
+					s.Host, s.User = b.Host, b.User
+					if b.Port >= 1 && b.Port <= 65535 {
+						s.Port = b.Port
+					}
+				}
+			}
+		}
+	}
 	if s.Port < 1 || s.Port > 65535 {
 		s.Port = 1080
 	}
@@ -108,6 +138,13 @@ func Save(s Settings) error {
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return err
+	}
+	// Simpan salinan isi lama dulu: kalau nanti file utama rusak/kosong, setelan
+	// pengguna (alamat server) masih bisa dipulihkan.
+	if lama, err := os.ReadFile(path); err == nil && len(lama) > 0 {
+		if bak, err := pathCadangan(); err == nil {
+			_ = os.WriteFile(bak, lama, 0o600)
+		}
 	}
 	return os.WriteFile(path, data, 0o600)
 }
