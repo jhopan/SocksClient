@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 )
 
 // Settings adalah isi file pengaturan.
@@ -23,7 +24,16 @@ type Settings struct {
 }
 
 // Dir mengembalikan direktori konfigurasi, dibuat bila belum ada.
+// Windows: %LOCALAPPDATA%\SocksClientDesktop - folder yang sama dengan aplikasi
+// Windows lama, dan di luar direktori instalasi.
 func Dir() (string, error) {
+	if dir := os.Getenv("LOCALAPPDATA"); runtime.GOOS == "windows" && dir != "" {
+		out := filepath.Join(dir, "SocksClientDesktop")
+		if err := os.MkdirAll(out, 0o700); err != nil {
+			return "", err
+		}
+		return out, nil
+	}
 	base := os.Getenv("XDG_CONFIG_HOME")
 	if base == "" {
 		home, err := os.UserHomeDir()
@@ -63,6 +73,22 @@ func Load() Settings {
 	if s.Port < 1 || s.Port > 65535 {
 		s.Port = 1080
 	}
+	// macOS (Keychain) dan Windows (DPAPI) tidak menyimpan password di file.
+	if KeychainAvailable() {
+		if pass, err := LoadSecret(); err == nil && pass != "" {
+			s.Pass = pass
+		} else if s.Pass == "" {
+			// migrasi dari aplikasi Windows lama: {"pass_enc": "<blob DPAPI>"}
+			var lama struct {
+				PassEnc string `json:"pass_enc"`
+			}
+			if json.Unmarshal(data, &lama) == nil && lama.PassEnc != "" {
+				if pass, err := unprotectLegacy(lama.PassEnc); err == nil {
+					s.Pass = pass
+				}
+			}
+		}
+	}
 	return s
 }
 
@@ -72,6 +98,12 @@ func Save(s Settings) error {
 	path, err := Path()
 	if err != nil {
 		return err
+	}
+	if KeychainAvailable() {
+		if err := StoreSecret(s.Pass); err != nil {
+			return err
+		}
+		s.Pass = "" // jangan tulis password ke settings.json
 	}
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {

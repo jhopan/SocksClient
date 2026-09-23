@@ -44,3 +44,6 @@ func DeleteSecret() error {
 		"-a", keychainAccount, "-s", keychainService).Run()
 	return nil
 }
+
+// unprotectLegacy tidak berlaku di macOS: tidak ada settings.json gaya Windows.
+func unprotectLegacy(string) (string, error) { return "", nil }

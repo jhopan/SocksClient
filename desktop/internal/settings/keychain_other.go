@@ -1,4 +1,4 @@
-//go:build !darwin
+//go:build !darwin && !windows
 
 package settings
 
@@ -14,3 +14,6 @@ func LoadSecret() (string, error) { return "", nil }
 
 // DeleteSecret tidak dipakai di luar macOS.
 func DeleteSecret() error { return nil }
+
+// unprotectLegacy tidak berlaku di platform ini: tidak ada settings.json gaya Windows.
+func unprotectLegacy(string) (string, error) { return "", nil }

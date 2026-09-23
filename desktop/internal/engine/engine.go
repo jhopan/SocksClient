@@ -139,6 +139,7 @@ func (e *Engine) Start(o Options) error {
 		return err
 	}
 	cmd.Stderr = cmd.Stdout
+	spawnHidden(cmd) // Windows: jangan munculkan console sing-box
 	if err := cmd.Start(); err != nil {
 		// Jangan tinggalkan config berisi kredensial kalau core gagal dijalankan.
 		os.Remove(configPath)
@@ -189,7 +190,7 @@ func (e *Engine) Stop() {
 	if cmd == nil || cmd.Process == nil {
 		return
 	}
-	cmd.Process.Signal(os.Interrupt)
+	terminate(cmd.Process.Pid)
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		if !e.Running() {
