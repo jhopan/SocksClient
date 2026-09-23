@@ -24,6 +24,7 @@ android/app/libs/libbox.aar
 # === Desktop ===
 # Binaries
 socks-client*.exe
+SocksClient.exe
 
 # Build artifacts
 installer_output/
