@@ -68,7 +68,7 @@ func form(gtx layout.Context, th *material.Theme) {
 			layout.Rigid(material.Label(th, unit.Sp(15), "Socks Client").Layout),
 			layout.Rigid(teks(th, 11, pink, "jhopanstore - v"+appVersion)),
 			layout.Rigid(spacer(unit.Dp(14))),
-			layout.Rigid(row(th, "Host", material.Editor(th, &edHost, "10.0.0.1").Layout)),
+			layout.Rigid(row(th, "Host", material.Editor(th, &edHost, "IP server").Layout)),
 			layout.Rigid(row(th, "Port", material.Editor(th, &edPort, "1080").Layout)),
 			layout.Rigid(row(th, "Username (opsional)", material.Editor(th, &edUser, "").Layout)),
 			layout.Rigid(row(th, "Password (opsional)", material.Editor(th, &edPass, "").Layout)),
