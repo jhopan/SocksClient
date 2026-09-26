@@ -33,28 +33,9 @@ var (
 	win                            *app.Window
 	ops                            op.Ops
 	edHost, edPort, edUser, edPass widget.Editor
-	btnTombol, btnMulai            widget.Clickable
+	btnTombol                      widget.Clickable
 	saklarPing                     widget.Bool
 )
-
-// splash menggambar kredit + cara pakai. Tidak ada yang lain.
-func splash(gtx layout.Context, th *material.Theme) {
-	layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		return layout.Flex{Axis: layout.Vertical, Alignment: layout.Middle}.Layout(gtx,
-			layout.Rigid(teks(th, 30, pink, "jhopanstore")),
-			layout.Rigid(teks(th, 12, abu, "Socks Client "+appVersion)),
-			layout.Rigid(spacer(unit.Dp(22))),
-			layout.Rigid(teks(th, 12, abu, "Cara pakai")),
-			layout.Rigid(teks(th, 12, palet.Fg, "1. Isi Host (IP server) dan Port")),
-			layout.Rigid(teks(th, 12, palet.Fg, "2. Username dan Password (opsional)")),
-			layout.Rigid(teks(th, 12, palet.Fg, "3. Tekan Connect")),
-			layout.Rigid(spacer(unit.Dp(22))),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return layout.Center.Layout(gtx, material.Button(th, &btnMulai, "Mulai").Layout)
-			}),
-		)
-	})
-}
 
 // form menggambar isi utama: 4 field, saklar ping, tombol, status.
 func form(gtx layout.Context, th *material.Theme) {
@@ -85,7 +66,7 @@ func form(gtx layout.Context, th *material.Theme) {
 	layout.UniformInset(unit.Dp(20)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		baris := []layout.FlexChild{
 			layout.Rigid(material.Label(th, unit.Sp(15), "Socks Client").Layout),
-			layout.Rigid(teks(th, 11, abu, "jhopanstore - v"+appVersion)),
+			layout.Rigid(teks(th, 11, pink, "jhopanstore - v"+appVersion)),
 			layout.Rigid(spacer(unit.Dp(14))),
 			layout.Rigid(row(th, "Host", material.Editor(th, &edHost, "10.0.0.1").Layout)),
 			layout.Rigid(row(th, "Port", material.Editor(th, &edPort, "1080").Layout)),

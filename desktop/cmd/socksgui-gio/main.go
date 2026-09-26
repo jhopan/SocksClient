@@ -2,9 +2,9 @@
 
 // Socks Client - GUI Gio, satu kode untuk Windows, Linux dan macOS.
 //
-// Alur: splash (kredit jhopanstore + cara pakai) -> form -> Connect:
-// cek host/port, cek koneksi TCP, cek autentikasi SOCKS5 (internal/engine),
-// baru core sing-box dijalankan, lalu HTTP ping (internal/ping) tiap 30 detik.
+// Alur: form -> Connect -> cek host/port, cek koneksi TCP, cek autentikasi
+// SOCKS5 (internal/engine), baru core sing-box dijalankan, lalu HTTP ping
+// (internal/ping) tiap 30 detik.
 package main
 
 import (
@@ -32,7 +32,6 @@ import (
 
 const (
 	appVersion = "1.7.0"
-	splashLama = 2500 * time.Millisecond
 )
 
 var (
@@ -82,11 +81,17 @@ func main() {
 		setPesan("Core sing-box tidak bisa dibaca: "+err.Error(), merah)
 	}
 
-	terbuka(st, *autoFlag)
+	if *autoFlag {
+		go func() {
+			time.Sleep(1500 * time.Millisecond)
+			sambung()
+		}()
+	}
+	terbuka(st)
 }
 
 // terbuka menyalakan jendela Gio.
-func terbuka(st settings.Settings, auto bool) {
+func terbuka(st settings.Settings) {
 	edPort.SetText(fmt.Sprintf("%d", st.Port))
 	if st.Host != "" {
 		edHost.SetText(st.Host)
@@ -112,11 +117,10 @@ func terbuka(st settings.Settings, auto bool) {
 			}
 		}()
 
-		// Hitungan splash dimulai saat FRAME PERTAMA tergambar, bukan saat proses
-		// dibuat: kalau dihitung dari awal proses, waktu habis saat UAC + init Gio
-		// masih berjalan, jadi yang terlihat langsung form (splash "tidak jalan").
-		var awalSplash time.Time
-
+		// Langsung form. Splash sudah dihapus: klik Mulai sempat memunculkan
+		// form lalu kembali ke splash (klik tidak stabil antar frame) dan itu
+		// lebih mengganggu daripada membantu. Kredit jhopanstore tetap ada -
+		// sebagai satu baris di bawah judul form.
 		for {
 			e := win.Event()
 			switch e := e.(type) {
@@ -125,21 +129,8 @@ func terbuka(st settings.Settings, auto bool) {
 				os.Exit(0)
 			case app.FrameEvent:
 				gtx := app.NewContext(&ops, e)
-				if awalSplash.IsZero() {
-					awalSplash = time.Now()
-					time.AfterFunc(splashLama, func() {
-						win.Invalidate()
-						if auto {
-							sambung()
-						}
-					})
-				}
 				paint.Fill(gtx.Ops, th.Palette.Bg)
-				if time.Since(awalSplash) < splashLama && !btnMulai.Clicked(gtx) {
-					splash(gtx, th)
-				} else {
-					form(gtx, th)
-				}
+				form(gtx, th)
 				e.Frame(gtx.Ops)
 			}
 		}
