@@ -117,8 +117,12 @@ func spacer(h unit.Dp) layout.Widget {
 	return func(gtx layout.Context) layout.Dimensions { return layout.Spacer{Height: h}.Layout(gtx) }
 }
 
+func spacerWidth(w unit.Dp) layout.Widget {
+	return func(gtx layout.Context) layout.Dimensions { return layout.Spacer{Width: w}.Layout(gtx) }
+}
+
 // panelInfoDev menggambar panel overlay di tengah jendela dengan info developer.
-// Klik Telegram/Website membuka browser; klik di luar panel menutupnya.
+// Klik Telegram/Website membuka browser; klik Tutup menutup panel.
 func panelInfoDev(gtx layout.Context, th *material.Theme) {
 	if btnTelegram.Clicked(gtx) {
 		bukaURL("https://t.me/jhopan_05")
@@ -144,9 +148,9 @@ func panelInfoDev(gtx layout.Context, th *material.Theme) {
 				layout.Rigid(teks(th, 12, th.Palette.Fg, "Website: jhopanstore.my.id")),
 				layout.Rigid(spacer(unit.Dp(16))),
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					return layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
+					return layout.Flex{Axis: layout.Horizontal, Spacing: layout.SpaceSides}.Layout(gtx,
 						layout.Rigid(material.Button(th, &btnTelegram, "Telegram").Layout),
-						layout.Rigid(spacer(unit.Dp(0))),
+						layout.Rigid(spacerWidth(unit.Dp(8))),
 						layout.Rigid(material.Button(th, &btnWebsite, "Website").Layout),
 					)
 				}),
