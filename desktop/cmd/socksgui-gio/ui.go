@@ -123,7 +123,6 @@ func spacerWidth(w unit.Dp) layout.Widget {
 }
 
 // panelInfoDev menggambar panel overlay di tengah jendela dengan info developer.
-// Klik Telegram/Website membuka browser; klik X menutup panel.
 func panelInfoDev(gtx layout.Context, th *material.Theme) {
 	if btnTelegram.Clicked(gtx) {
 		bukaURL("https://t.me/jhopan_05")
@@ -140,20 +139,31 @@ func panelInfoDev(gtx layout.Context, th *material.Theme) {
 	// Latar gelap semi-transparan menutupi form.
 	paint.Fill(gtx.Ops, color.NRGBA{R: 0, G: 0, B: 0, A: 0xb0})
 
-	// Layout: full screen, X di pojok kanan atas, konten di tengah
-	layout.Stack{Alignment: layout.Center}.Layout(gtx,
+	// Layout vertikal full-screen: X di atas, konten di tengah
+	layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+		// Baris atas: X di kanan
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
+				layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+					return layout.Inset{Top: unit.Dp(8), Right: unit.Dp(8)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+						return layout.E.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+							btn := material.Button(th, &btnTutupInfo, "Tutup")
+							btn.Color = abu
+							btn.Background = color.NRGBA{R: 0x30, G: 0x30, B: 0x30, A: 0xff}
+							return btn.Layout(gtx)
+						})
+					})
+				}),
+			)
+		}),
 		// Konten tengah
-		layout.Stacked(func(gtx layout.Context) layout.Dimensions {
-			return layout.UniformInset(unit.Dp(24)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+			return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				return layout.Flex{Axis: layout.Vertical, Alignment: layout.Middle}.Layout(gtx,
-					layout.Rigid(teks(th, 16, pink, "JhopanStore")),
-					layout.Rigid(spacer(unit.Dp(8))),
-					layout.Rigid(teks(th, 12, abu, "Socks Client v"+appVersion)),
-					layout.Rigid(spacer(unit.Dp(12))),
-					layout.Rigid(teks(th, 12, th.Palette.Fg, "Telegram: t.me/jhopan_05")),
-					layout.Rigid(spacer(unit.Dp(4))),
-					layout.Rigid(teks(th, 12, th.Palette.Fg, "Website: jhopanstore.my.id")),
-					layout.Rigid(spacer(unit.Dp(16))),
+					layout.Rigid(teks(th, 18, pink, "JhopanStore")),
+					layout.Rigid(spacer(unit.Dp(6))),
+					layout.Rigid(teks(th, 12, abu, "v"+appVersion)),
+					layout.Rigid(spacer(unit.Dp(24))),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 						return layout.Flex{Axis: layout.Horizontal, Spacing: layout.SpaceSides}.Layout(gtx,
 							layout.Rigid(material.Button(th, &btnTelegram, "Telegram").Layout),
@@ -162,15 +172,6 @@ func panelInfoDev(gtx layout.Context, th *material.Theme) {
 						)
 					}),
 				)
-			})
-		}),
-		// Tombol X di pojok kanan atas
-		layout.Stacked(func(gtx layout.Context) layout.Dimensions {
-			return layout.Inset{Top: unit.Dp(8), Right: unit.Dp(8)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				btn := material.Button(th, &btnTutupInfo, "✕")
-				btn.Color = abu
-				btn.Background = color.NRGBA{R: 0x30, G: 0x30, B: 0x30, A: 0xff}
-				return btn.Layout(gtx)
 			})
 		}),
 	)
