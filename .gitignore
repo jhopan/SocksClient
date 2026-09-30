@@ -53,3 +53,10 @@ Thumbs.db
 # Signing material - jangan pernah masuk git
 *.jks
 *.keystore
+
+# Docs internal (bukan untuk publik)
+AGENTS.md
+CONTRIBUTING.md
+
+# Samples (eksperimen, bukan bagian rilis)
+samples/
