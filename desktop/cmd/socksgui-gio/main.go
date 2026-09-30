@@ -32,7 +32,7 @@ import (
 )
 
 const (
-	appVersion = "1.7.0.2"
+	appVersion = "1.7.0.3"
 )
 
 var (
@@ -110,9 +110,9 @@ func terbuka(st settings.Settings) {
 		win = new(app.Window)
 		win.Option(
 			app.Title("Socks Client"),
-			app.Size(unit.Dp(380), unit.Dp(420)),
-			app.MaxSize(unit.Dp(380), unit.Dp(420)),
-			app.MinSize(unit.Dp(380), unit.Dp(420)),
+			app.Size(unit.Dp(380), unit.Dp(460)),
+			app.MaxSize(unit.Dp(380), unit.Dp(460)),
+			app.MinSize(unit.Dp(380), unit.Dp(460)),
 		)
 
 		th := material.NewTheme()

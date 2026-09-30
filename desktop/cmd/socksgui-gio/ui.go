@@ -8,6 +8,7 @@ import (
 	"gioui.org/app"
 	"gioui.org/layout"
 	"gioui.org/op"
+	"gioui.org/op/paint"
 	"gioui.org/unit"
 	"gioui.org/widget"
 	"gioui.org/widget/material"
@@ -33,8 +34,10 @@ var (
 	win                            *app.Window
 	ops                            op.Ops
 	edHost, edPort, edUser, edPass widget.Editor
-	btnTombol                      widget.Clickable
+	btnTombol, btnInfoDev          widget.Clickable
+	btnTelegram, btnWebsite        widget.Clickable
 	saklarPing                     widget.Bool
+	tampilInfo                     bool
 )
 
 // form menggambar isi utama: 4 field, saklar ping, tombol, status.
@@ -45,6 +48,9 @@ func form(gtx layout.Context, th *material.Theme) {
 	if saklarPing.Update(gtx) {
 		simpanSetelan()
 		terapkanPing()
+	}
+	if btnInfoDev.Clicked(gtx) {
+		tampilInfo = true
 	}
 
 	mu.Lock()
@@ -79,8 +85,14 @@ func form(gtx layout.Context, th *material.Theme) {
 			layout.Rigid(material.Button(th, &btnTombol, nama).Layout),
 			layout.Rigid(spacer(unit.Dp(10))),
 			layout.Rigid(teks(th, 12, warna, pesan)),
+			layout.Rigid(spacer(unit.Dp(14))),
+			layout.Rigid(material.Button(th, &btnInfoDev, "Info Developer").Layout),
 		}
-		return layout.Flex{Axis: layout.Vertical}.Layout(gtx, baris...)
+		dim := layout.Flex{Axis: layout.Vertical}.Layout(gtx, baris...)
+		if tampilInfo {
+			panelInfoDev(gtx, th)
+		}
+		return dim
 	})
 }
 
@@ -103,4 +115,42 @@ func teks(th *material.Theme, sp unit.Sp, c color.NRGBA, s string) layout.Widget
 
 func spacer(h unit.Dp) layout.Widget {
 	return func(gtx layout.Context) layout.Dimensions { return layout.Spacer{Height: h}.Layout(gtx) }
+}
+
+// panelInfoDev menggambar panel overlay di tengah jendela dengan info developer.
+// Klik Telegram/Website membuka browser; klik di luar panel menutupnya.
+func panelInfoDev(gtx layout.Context, th *material.Theme) {
+	if btnTelegram.Clicked(gtx) {
+		bukaURL("https://t.me/jhopan_05")
+		tampilInfo = false
+	}
+	if btnWebsite.Clicked(gtx) {
+		bukaURL("https://jhopanstore.my.id")
+		tampilInfo = false
+	}
+
+	// Latar gelap semi-transparan menutupi form.
+	paint.Fill(gtx.Ops, color.NRGBA{R: 0, G: 0, B: 0, A: 0xb0})
+
+	layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return layout.UniformInset(unit.Dp(24)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			return layout.Flex{Axis: layout.Vertical, Alignment: layout.Middle}.Layout(gtx,
+				layout.Rigid(teks(th, 16, pink, "JhopanStore")),
+				layout.Rigid(spacer(unit.Dp(8))),
+				layout.Rigid(teks(th, 12, abu, "Socks Client v"+appVersion)),
+				layout.Rigid(spacer(unit.Dp(12))),
+				layout.Rigid(teks(th, 12, th.Palette.Fg, "Telegram: t.me/jhopan_05")),
+				layout.Rigid(spacer(unit.Dp(4))),
+				layout.Rigid(teks(th, 12, th.Palette.Fg, "Website: jhopanstore.my.id")),
+				layout.Rigid(spacer(unit.Dp(16))),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					return layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
+						layout.Rigid(material.Button(th, &btnTelegram, "Telegram").Layout),
+						layout.Rigid(spacer(unit.Dp(0))),
+						layout.Rigid(material.Button(th, &btnWebsite, "Website").Layout),
+					)
+				}),
+			)
+		})
+	})
 }

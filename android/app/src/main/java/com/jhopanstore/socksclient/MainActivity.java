@@ -388,21 +388,19 @@ public class MainActivity extends Activity {
         String info = "Socks Client v" + versionName + "\n\n"
                 + "Developer: JhopanStore\n"
                 + "Platform: Android (SOCKS5 VPN Client)\n\n"
-                + "Hubungi developer atau dukung pengembangan aplikasi:";
+                + "Hubungi developer:";
 
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle("Info Developer")
                 .setMessage(info)
                 .setPositiveButton("Telegram", (d, w) -> openUrl("https://t.me/jhopan_05"))
-                .setNeutralButton("Website", (d, w) -> openUrl("https://jhopanstore.my.id"))
-                .setNegativeButton("Trakteer", (d, w) -> openUrl("https://trakteer.id/jhopan"))
+                .setNegativeButton("Website", (d, w) -> openUrl("https://jhopanstore.my.id"))
                 .create();
 
         dialog.setOnShowListener(d -> {
             AlertDialog ad = (AlertDialog) d;
             ad.getButton(AlertDialog.BUTTON_POSITIVE).setTextColor(Color.rgb(0, 136, 204));
-            ad.getButton(AlertDialog.BUTTON_NEUTRAL).setTextColor(Color.rgb(76, 175, 80));
-            ad.getButton(AlertDialog.BUTTON_NEGATIVE).setTextColor(Color.rgb(244, 67, 54));
+            ad.getButton(AlertDialog.BUTTON_NEGATIVE).setTextColor(Color.rgb(76, 175, 80));
         });
 
         dialog.show();
