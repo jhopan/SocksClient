@@ -163,18 +163,14 @@ func (e *Engine) Start(o Options) error {
 	}()
 
 	go func() {
-		err := cmd.Wait()
+		cmd.Wait()
 		os.Remove(configPath)
 		e.stopPing()
 		e.mu.Lock()
 		e.running = false
 		e.cmd = nil
 		e.lastPing = ""
-		if err != nil {
-			e.status = "Core berhenti - lihat log (Diagnosa)"
-		} else {
-			e.status = "Disconnected"
-		}
+		e.status = "Disconnected"
 		e.mu.Unlock()
 	}()
 

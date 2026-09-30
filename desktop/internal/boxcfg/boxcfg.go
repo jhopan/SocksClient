@@ -69,7 +69,7 @@ func (o TunOptions) logLevel() string {
 	if o.LogLevel != "" {
 		return o.LogLevel
 	}
-	return "info"
+	return "warn"
 }
 
 func tunInbound(opts TunOptions) map[string]interface{} {
