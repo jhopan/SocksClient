@@ -32,7 +32,7 @@ import (
 )
 
 const (
-	appVersion = "1.7.0.5"
+	appVersion = "1.7.0.6"
 )
 
 var (

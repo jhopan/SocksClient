@@ -36,6 +36,7 @@ var (
 	edHost, edPort, edUser, edPass widget.Editor
 	btnTombol, btnInfoDev          widget.Clickable
 	btnTelegram, btnWebsite        widget.Clickable
+	btnTutupInfo                   widget.Clickable
 	saklarPing                     widget.Bool
 	tampilInfo                     bool
 )
@@ -122,7 +123,7 @@ func spacerWidth(w unit.Dp) layout.Widget {
 }
 
 // panelInfoDev menggambar panel overlay di tengah jendela dengan info developer.
-// Klik Telegram/Website membuka browser; klik Tutup menutup panel.
+// Klik Telegram/Website membuka browser; klik X menutup panel.
 func panelInfoDev(gtx layout.Context, th *material.Theme) {
 	if btnTelegram.Clicked(gtx) {
 		bukaURL("https://t.me/jhopan_05")
@@ -132,29 +133,45 @@ func panelInfoDev(gtx layout.Context, th *material.Theme) {
 		bukaURL("https://jhopanstore.my.id")
 		tampilInfo = false
 	}
+	if btnTutupInfo.Clicked(gtx) {
+		tampilInfo = false
+	}
 
 	// Latar gelap semi-transparan menutupi form.
 	paint.Fill(gtx.Ops, color.NRGBA{R: 0, G: 0, B: 0, A: 0xb0})
 
-	layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		return layout.UniformInset(unit.Dp(24)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			return layout.Flex{Axis: layout.Vertical, Alignment: layout.Middle}.Layout(gtx,
-				layout.Rigid(teks(th, 16, pink, "JhopanStore")),
-				layout.Rigid(spacer(unit.Dp(8))),
-				layout.Rigid(teks(th, 12, abu, "Socks Client v"+appVersion)),
-				layout.Rigid(spacer(unit.Dp(12))),
-				layout.Rigid(teks(th, 12, th.Palette.Fg, "Telegram: t.me/jhopan_05")),
-				layout.Rigid(spacer(unit.Dp(4))),
-				layout.Rigid(teks(th, 12, th.Palette.Fg, "Website: jhopanstore.my.id")),
-				layout.Rigid(spacer(unit.Dp(16))),
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					return layout.Flex{Axis: layout.Horizontal, Spacing: layout.SpaceSides}.Layout(gtx,
-						layout.Rigid(material.Button(th, &btnTelegram, "Telegram").Layout),
-						layout.Rigid(spacerWidth(unit.Dp(8))),
-						layout.Rigid(material.Button(th, &btnWebsite, "Website").Layout),
-					)
-				}),
-			)
-		})
-	})
+	// Layout: full screen, X di pojok kanan atas, konten di tengah
+	layout.Stack{Alignment: layout.Center}.Layout(gtx,
+		// Konten tengah
+		layout.Stacked(func(gtx layout.Context) layout.Dimensions {
+			return layout.UniformInset(unit.Dp(24)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				return layout.Flex{Axis: layout.Vertical, Alignment: layout.Middle}.Layout(gtx,
+					layout.Rigid(teks(th, 16, pink, "JhopanStore")),
+					layout.Rigid(spacer(unit.Dp(8))),
+					layout.Rigid(teks(th, 12, abu, "Socks Client v"+appVersion)),
+					layout.Rigid(spacer(unit.Dp(12))),
+					layout.Rigid(teks(th, 12, th.Palette.Fg, "Telegram: t.me/jhopan_05")),
+					layout.Rigid(spacer(unit.Dp(4))),
+					layout.Rigid(teks(th, 12, th.Palette.Fg, "Website: jhopanstore.my.id")),
+					layout.Rigid(spacer(unit.Dp(16))),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						return layout.Flex{Axis: layout.Horizontal, Spacing: layout.SpaceSides}.Layout(gtx,
+							layout.Rigid(material.Button(th, &btnTelegram, "Telegram").Layout),
+							layout.Rigid(spacerWidth(unit.Dp(8))),
+							layout.Rigid(material.Button(th, &btnWebsite, "Website").Layout),
+						)
+					}),
+				)
+			})
+		}),
+		// Tombol X di pojok kanan atas
+		layout.Stacked(func(gtx layout.Context) layout.Dimensions {
+			return layout.Inset{Top: unit.Dp(8), Right: unit.Dp(8)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				btn := material.Button(th, &btnTutupInfo, "✕")
+				btn.Color = abu
+				btn.Background = color.NRGBA{R: 0x30, G: 0x30, B: 0x30, A: 0xff}
+				return btn.Layout(gtx)
+			})
+		}),
+	)
 }
