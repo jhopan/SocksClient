@@ -172,7 +172,7 @@ jobs:
       - name: Get version
         id: version
         run: |
-          VERSION=$(grep 'appVersion' main.go | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          VERSION=$(grep 'appVersion' cmd/socksgui-gio/main.go | head -1 | sed 's/.*"\(.*\)".*/\1/')
           echo "VERSION=$VERSION" >> $GITHUB_ENV
 
       - name: Write SHA256SUMS
