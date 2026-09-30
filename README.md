@@ -1,8 +1,8 @@
 <div align="center">
 
-# 🔵 Socks Client
+# Socks Client
 
-**SOCKS5 Tunnel Client** — Android · Windows · Linux · macOS
+**SOCKS5 Tunnel Client** - Android - Windows - Linux - macOS
 
 Route semua trafik (TCP, UDP, DNS) melalui server SOCKS5 kamu.
 Anti DNS leak, hemat baterai, satu GUI untuk semua desktop.
@@ -18,7 +18,7 @@ Anti DNS leak, hemat baterai, satu GUI untuk semua desktop.
 
 ---
 
-## ✨ Fitur
+## Fitur
 
 | Fitur | Detail |
 |---|---|
@@ -32,7 +32,7 @@ Anti DNS leak, hemat baterai, satu GUI untuk semua desktop.
 | **Cross-platform GUI** | Satu kode Gio untuk Windows, Linux, macOS |
 | **Password terenkripsi** | Android Keystore (AES-GCM) · Windows DPAPI · Linux file 0600 |
 
-## 📥 Download
+## Download
 
 | Platform | File | Info |
 |---|---|---|
@@ -43,7 +43,7 @@ Anti DNS leak, hemat baterai, satu GUI untuk semua desktop.
 
 → [**Latest Release**](../../releases/latest)
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Android
 1. Download APK → install → buka
@@ -74,7 +74,7 @@ sudo socksctl up -host 10.0.0.1 -port 1080
 > ⚠️ **Host wajib IP literal** (contoh `10.0.0.1`), bukan hostname.
 > Hostname akan bocor DNS di luar tunnel.
 
-## 🏗️ Arsitektur
+## Arsitektur
 
 ```
 Device → TUN (gvisor, MTU 1400) → sing-box → SOCKS5 → Server → Internet
@@ -97,7 +97,7 @@ socks-clients/
 └── .github/workflows/     # CI + release
 ```
 
-## 🔧 Build dari Source
+## Build dari Source
 
 ```bash
 # Desktop (Windows/Linux/macOS) — dari desktop/
@@ -123,7 +123,7 @@ export KEYSTORE_PASSWORD=... KEY_ALIAS=socksclient KEY_PASSWORD=...
 
 GitHub Secrets: `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`
 
-## 📊 Spec
+## Spec
 
 | | Android | Windows | Linux | macOS |
 |---|---|---|---|---|
@@ -133,7 +133,7 @@ GitHub Secrets: `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWO
 | Binary | 16-32 MB | 13 MB | 12 MB | 12 MB |
 | DNS | hijack + VPN DNS | hijack + WFP | hijack | hijack |
 
-## 🔐 Keamanan
+## Keamanan
 
 | Aspek | Implementasi |
 |---|---|
@@ -143,7 +143,7 @@ GitHub Secrets: `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWO
 | Signing | Keystore RSA 2048, validitas 100 tahun |
 | Config | Ditulis mode 0600, dihapus setelah core berhenti |
 
-## 🧪 QA
+## QA
 
 ```bash
 # Test lokal (desktop)
@@ -157,7 +157,7 @@ bash desktop/scripts/tun-selftest.sh
 # Semua resolver harus dari SOCKS server, bukan ISP
 ```
 
-## 📝 Versi
+## Versi
 
 | Perubahan | Versi | Contoh |
 |---|---|---|
@@ -167,13 +167,13 @@ bash desktop/scripts/tun-selftest.sh
 
 3 release hidup maksimal: **desktop** · **APK** · **core**
 
-## 👤 Developer
+## Developer
 
 **JhopanStore**
 
 [![Telegram](https://img.shields.io/badge/Telegram-@jhopan__05-26A5E4?style=flat-square&logo=telegram&logoColor=white)](https://t.me/jhopan_05)
 [![Website](https://img.shields.io/badge/Website-jhopanstore.my.id-4FC3F7?style=flat-square&logo=googlechrome&logoColor=white)](https://jhopanstore.my.id)
 
-## 📄 License
+## License
 
 MIT — see [LICENSE](LICENSE)
