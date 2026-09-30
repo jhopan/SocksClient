@@ -3,7 +3,7 @@
 ; Download: https://jrsoftware.org/isdl.php
 
 #define MyAppName "Socks Client Desktop"
-#define MyAppVersion "1.7.0.1"
+#define MyAppVersion "1.7.0.2"
 #define MyAppPublisher "JhopanStore"
 #define MyAppExeName "SocksClient.exe"
 #define MyAppURL "https://github.com/jhopan/SocksClient"

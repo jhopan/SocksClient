@@ -32,7 +32,7 @@ import (
 )
 
 const (
-	appVersion = "1.7.0.1"
+	appVersion = "1.7.0.2"
 )
 
 var (
@@ -108,7 +108,12 @@ func terbuka(st settings.Settings) {
 
 	go func() {
 		win = new(app.Window)
-		win.Option(app.Title("Socks Client"), app.Size(unit.Dp(400), unit.Dp(430)))
+		win.Option(
+			app.Title("Socks Client"),
+			app.Size(unit.Dp(380), unit.Dp(420)),
+			app.MaxSize(unit.Dp(380), unit.Dp(420)),
+			app.MinSize(unit.Dp(380), unit.Dp(420)),
+		)
 
 		th := material.NewTheme()
 		th.Shaper = text.NewShaper(text.WithCollection(gofont.Collection()))
