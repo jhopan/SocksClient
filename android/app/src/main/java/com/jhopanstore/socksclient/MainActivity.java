@@ -18,9 +18,8 @@ import android.text.InputType;
 // import android.util.Log; // all logs commented out
 import android.view.Gravity;
 import android.view.View;
+import android.widget.CheckBox;
 import android.widget.Button;
-import android.widget.RadioButton;
-import android.widget.RadioGroup;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -35,6 +34,7 @@ public class MainActivity extends Activity {
     private static final int GREEN = Color.rgb(28, 184, 98);
     private static final int RED = Color.rgb(220, 60, 60);
     private static final int GRAY = Color.rgb(96, 102, 114);
+    private static final int PINK = Color.rgb(240, 108, 168);
     private static final int REQ_VPN = 300;
     private static final String STATUS_PREFS = "socks_client_status";
     private static final String KEY_CONNECTED = "connected";
@@ -49,8 +49,6 @@ public class MainActivity extends Activity {
     private EditText passInput;
     private TextView statusText;
     private TextView pingText;
-    private RadioButton pingOnRadio, pingOffRadio;
-    private boolean syncingPingUi;
     private Button connectButton;
     // private Button disconnectButton; // merged into connectButton
 
@@ -106,73 +104,69 @@ public class MainActivity extends Activity {
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(20), dp(20), dp(20), dp(24));
+        root.setPadding(dp(24), dp(24), dp(24), dp(24));
         scroll.addView(root, new ScrollView.LayoutParams(-1, -2));
 
+        // Header: judul + by JhopanStore + versi
         TextView title = text("Socks Client", 28, true, TEXT_PRIMARY);
         title.setGravity(Gravity.CENTER);
         root.addView(title, matchWrap());
 
-        hostInput = textInput("SOCKS Host/IP", prefs.getString("host", ""));
-        portInput = numberInput("SOCKS Port", prefs.getInt("port", 1080));
+        TextView subtitle = text("by JhopanStore", 13, false, PINK);
+        subtitle.setGravity(Gravity.CENTER);
+        root.addView(subtitle, marginTop(matchWrap(), 2));
+
+        try {
+            String vn = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+            TextView ver = text("v" + vn, 12, false, TEXT_SECONDARY);
+            ver.setGravity(Gravity.CENTER);
+            root.addView(ver, marginTop(matchWrap(), 1));
+        } catch (Exception ignored) {}
+
+        // Fields
+        hostInput = textInput("Host / IP", prefs.getString("host", ""));
+        portInput = numberInput("Port", prefs.getInt("port", 1080));
         userInput = textInput("Username (opsional)", prefs.getString("user", ""));
-        // S3: password disimpan terenkripsi (Android Keystore). Kunci lama "pass"
-        // masih dibaca sekali untuk migrasi, lalu ikut ditulis ulang terenkripsi.
         String passPlain = SecurePrefs.decrypt(this, prefs.getString("pass_enc", null));
         passInput = textInput("Password (opsional)",
                 passPlain != null ? passPlain : prefs.getString("pass", ""));
 
-        root.addView(fieldBox("Host / IP", hostInput), marginTop(matchWrap(), 18));
+        root.addView(fieldBox("Host / IP", hostInput), marginTop(matchWrap(), 20));
         root.addView(fieldBox("Port", portInput), marginTop(matchWrap(), 10));
         root.addView(fieldBox("Username", userInput), marginTop(matchWrap(), 10));
         root.addView(fieldBox("Password", passInput), marginTop(matchWrap(), 10));
 
-        connectButton = button("Connect Socks VPN");
+        // Tombol Connect (simpel, tidak pakah "Socks VPN")
+        connectButton = button("Connect");
         connectButton.setBackgroundColor(GREEN);
         connectButton.setOnClickListener(v -> onToggleConnection());
-        root.addView(connectButton, marginTop(matchWrap(), 16));
+        root.addView(connectButton, marginTop(matchWrap(), 18));
 
-        Button guide = button("Cara Pakai Socks Client");
-        guide.setBackgroundColor(Color.rgb(86, 96, 111));
-        guide.setOnClickListener(v -> showGuide());
-        root.addView(guide, marginTop(matchWrap(), 8));
+        // HTTP ping: checkbox kecil (seperti desktop), bukan radio On/Off
+        CheckBox pingCheck = new CheckBox(this);
+        pingCheck.setText("HTTP ping");
+        pingCheck.setTextColor(TEXT_PRIMARY);
+        pingCheck.setTextSize(14);
+        boolean pingEnabled = getSharedPreferences(STATUS_PREFS, MODE_PRIVATE)
+                .getBoolean("ping_enabled", false);
+        pingCheck.setChecked(pingEnabled);
+        pingCheck.setOnCheckedChangeListener((v, checked) -> {
+            getSharedPreferences(STATUS_PREFS, MODE_PRIVATE).edit()
+                    .putBoolean("ping_enabled", checked).apply();
+        });
+        root.addView(pingCheck, marginTop(matchWrap(), 10));
+        pingText = text("", 12, false, TEXT_SECONDARY);
+        root.addView(pingText, marginTop(matchWrap(), 2));
 
+        // Status
+        statusText = text("", 15, true, TEXT_PRIMARY);
+        root.addView(statusText, marginTop(matchWrap(), 16));
+
+        // Info Developer
         Button infoDev = button("Info Developer");
         infoDev.setBackgroundColor(Color.rgb(70, 130, 180));
         infoDev.setOnClickListener(v -> showDeveloperInfo());
-        root.addView(infoDev, marginTop(matchWrap(), 8));
-
-        // HTTP ping: On/Off. Hasilnya ditulis service ke prefs dan dibaca di sini.
-        LinearLayout pingRow = new LinearLayout(this);
-        pingRow.setOrientation(LinearLayout.HORIZONTAL);
-        pingRow.setGravity(Gravity.CENTER_VERTICAL);
-        pingRow.addView(text("HTTP ping:", 14, true, TEXT_PRIMARY), matchWrap());
-        RadioGroup pingGroup = new RadioGroup(this);
-        pingGroup.setOrientation(RadioGroup.HORIZONTAL);
-        pingOnRadio = new RadioButton(this);
-        pingOnRadio.setText("On");
-        pingOnRadio.setTextColor(TEXT_PRIMARY);
-        pingOffRadio = new RadioButton(this);
-        pingOffRadio.setText("Off");
-        pingOffRadio.setTextColor(TEXT_PRIMARY);
-        pingGroup.addView(pingOnRadio);
-        pingGroup.addView(pingOffRadio);
-        pingGroup.setOnCheckedChangeListener((group, checkedId) -> {
-            if (syncingPingUi) return;
-            boolean enabled = checkedId == pingOnRadio.getId();
-            getSharedPreferences(STATUS_PREFS, MODE_PRIVATE).edit()
-                    .putBoolean("ping_enabled", enabled)
-                    .apply();
-        });
-        LinearLayout.LayoutParams pingGroupParams = matchWrap();
-        pingGroupParams.leftMargin = dp(4);
-        pingRow.addView(pingGroup, pingGroupParams);
-        root.addView(pingRow, marginTop(matchWrap(), 10));
-
-        pingText = text("Ping: -", 13, false, TEXT_SECONDARY);
-        root.addView(pingText, marginTop(matchWrap(), 4));
-        statusText = text("", 15, true, TEXT_PRIMARY);
-        root.addView(statusText, marginTop(matchWrap(), 18));
+        root.addView(infoDev, marginTop(matchWrap(), 20));
 
         return scroll;
     }
@@ -306,24 +300,16 @@ public class MainActivity extends Activity {
 
         statusText.setText("Status: " + (connected ? "Connected" : "Disconnected"));
 
-        // HTTP ping: samakan radio dengan pref (tanpa memicu penulisan balik),
-        // lalu tampilkan hasil terakhir yang ditulis service.
+        // HTTP ping: tampilkan hasil terakhir yang ditulis service.
         boolean pingEnabled = statusPrefs.getBoolean("ping_enabled", false);
-        syncingPingUi = true;
-        if (pingEnabled && !pingOnRadio.isChecked()) {
-            pingOnRadio.setChecked(true);
-        } else if (!pingEnabled && !pingOffRadio.isChecked()) {
-            pingOffRadio.setChecked(true);
-        }
-        syncingPingUi = false;
         if (pingText != null) {
             String pingResult = statusPrefs.getString("ping_result", null);
             if (pingResult != null) {
                 pingText.setText("Ping: " + pingResult);
             } else {
                 pingText.setText(pingEnabled
-                        ? (connected ? "Ping: menunggu hasil..." : "Ping: aktif saat Connected")
-                        : "Ping: off (tidak ada trafik tambahan)");
+                        ? (connected ? "Ping: menunggu hasil..." : "")
+                        : "");
             }
         }
 
@@ -391,29 +377,6 @@ public class MainActivity extends Activity {
         if (bytes < 1024 * 1024) return String.format(java.util.Locale.US, "%.1f KB", bytes / 1024.0);
         if (bytes < 1024L * 1024 * 1024) return String.format(java.util.Locale.US, "%.1f MB", bytes / (1024.0 * 1024));
         return String.format(java.util.Locale.US, "%.2f GB", bytes / (1024.0 * 1024 * 1024));
-    }
-
-    private void showGuide() {
-        String guide = "1) Hubungkan HP client ke hotspot/USB tether dari HP server.\n"
-                + "2) Isi Host/IP dengan alamat SOCKS5 server (contoh 192.168.1.10).\n"
-                + "3) Isi Port (default 1080).\n"
-                + "4) Jika server pakai auth, isi Username dan Password.\n"
-                + "5) Tekan Connect Socks VPN lalu izinkan VPN Android.\n"
-                + "6) Saat status Connected, SEMUA trafik (TCP + UDP) dari aplikasi client "
-                + "akan di-tunnel ke SOCKS5 server via VPN.\n\n"
-                + "Fitur:\n"
-                + "• TCP + UDP via SOCKS5 (UDP Associate)\n"
-                + "• DNS remote via tunnel (anti DNS leak)\n"
-                + "• Anti routing loop (bind_interface + bypass rule)\n"
-                + "• Protocol sniffing (HTTP/TLS/QUIC)\n"
-                + "• IPv4 + IPv6 support\n"
-                + "• Traffic Counter (upload/download stats)\n\n"
-                + "Tips: Pastikan SOCKS5 server support UDP Associate agar UDP lancar.";
-        new AlertDialog.Builder(this)
-                .setTitle("Panduan Socks Client")
-                .setMessage(guide)
-                .setPositiveButton("Tutup", null)
-                .show();
     }
 
     private void showDeveloperInfo() {
