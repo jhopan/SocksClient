@@ -12,8 +12,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  # GUI native hanya bisa dibangun di platformnya (cgo GTK3 / cgo AppKit).
-  # Ini gerbang tiap push supaya shell GUI tidak rusak tanpa terlihat.
+  
   gui-linux:
     runs-on: ubuntu-latest
     defaults:
@@ -28,7 +27,7 @@ jobs:
         with:
           go-version: '1.25'
 
-      - name: Install GTK3 dev
+      - name: Install Gio dependencies
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq \
@@ -38,11 +37,11 @@ jobs:
 
       - name: Vet and build Gio GUI
         run: |
-          # Paket root (desktop/) hanya untuk Windows, jadi ./... tidak bisa di-vet
-          # di sini; yang relevan: paket portabel + GUI Linux.
           go vet ./internal/... ./cmd/socksctl ./cmd/socksgui-gio
           go build -trimpath -ldflags "-s -w" -o "$RUNNER_TEMP/socksgui" ./cmd/socksgui-gio
           echo "socksgui (Gio): $(stat -c%s "$RUNNER_TEMP/socksgui") bytes"
+      - name: Test
+        run: go test -count=1 ./internal/...
 
   gui-macos:
     runs-on: macos-14
@@ -87,15 +86,13 @@ jobs:
         run: bash scripts/fetch-core.sh
 
       - name: Vet
-        run: go vet ./...
+        run: go vet ./internal/... ./cmd/socksgui-gio ./cmd/socksctl
 
       - name: Test
-        run: go test -count=1 ./...
+        run: go test -count=1 ./internal/...
 
-      # CLI Linux/macOS: pastikan tetap bisa dikompilasi untuk setiap target yang
-      # dirilis, termasuk build tag root_unix.go.
+      # CLI Linux/macOS: pastikan tetap bisa dikompilasi untuk setiap target.
       - name: Cross-compile socksctl (linux, macOS)
-        working-directory: desktop
         run: |
           out="${RUNNER_TEMP:-/tmp}/socksctl-cross"
           for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
@@ -105,5 +102,7 @@ jobs:
             rm -f "$out"
           done
 
-      - name: Build
-        run: go build -ldflags="-s -w -H windowsgui" -o socks-client.exe .
+      - name: Build Gio GUI (Windows)
+        run: |
+          CGO_ENABLED=1 go build -trimpath -ldflags="-s -w -H windowsgui" -o SocksClient.exe ./cmd/socksgui-gio
+          echo "SocksClient.exe: $(stat -c%s SocksClient.exe) bytes"

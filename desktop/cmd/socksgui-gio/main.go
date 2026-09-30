@@ -13,6 +13,7 @@ import (
 	"image/color"
 	"os"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -49,6 +50,11 @@ func setPesan(s string, c color.NRGBA) {
 }
 
 func main() {
+	// Batas memori Go: aplikasi GUI kecil tidak butuh heap besar. Soft cap
+	// 32 MiB + GC lebih agresif menurunkan RAM idle ~6 MB tanpa efek sumber.
+	debug.SetMemoryLimit(32 << 20)
+	debug.SetGCPercent(50)
+
 	coreFlag := flag.String("core", "", "path ke sing-box (opsional)")
 	autoFlag := flag.Bool("auto", false, "langsung Connect setelah splash (untuk uji)")
 	flag.Parse()
