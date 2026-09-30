@@ -6,7 +6,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 DESKTOP="$(cd "$HERE/.." && pwd)"
 OUT="${OUT:-$DESKTOP/dist}"
-VERSION="${VERSION:-$(grep 'appVersion' "$DESKTOP/main.go" | head -1 | sed 's/.*"\(.*\)".*/\1/')}"
+VERSION="${VERSION:-$(grep 'appVersion' "$DESKTOP/cmd/socksgui-gio/main.go" | head -1 | sed 's/.*"\(.*\)".*/\1/')}"
 mkdir -p "$OUT" "$OUT/bin" "$OUT/core"
 
 echo "== build socksctl $VERSION"
