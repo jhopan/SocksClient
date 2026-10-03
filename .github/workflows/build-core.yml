@@ -164,7 +164,7 @@ jobs:
             -target "android/arm64,android/arm" -androidapi 24 \
             -javapkg=io.nekohasekai -libname=box \
             -trimpath -buildvcs=false \
-            -ldflags "-s -w -buildid= -checklinkname=0 -X github.com/sagernet/sing-box/constant.Version=${SB_VERSION}-minimal" \
+            -ldflags "-s -w -buildid= -checklinkname=0 -z max-page-size=16384 -X github.com/sagernet/sing-box/constant.Version=${SB_VERSION}-minimal" \
             -tags "with_gvisor,badlinkname,tfogo_checklinkname0" ./experimental/libbox
           cd ..
           ls -lh dist/

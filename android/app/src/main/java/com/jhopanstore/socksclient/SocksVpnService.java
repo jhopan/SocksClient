@@ -28,6 +28,7 @@ import io.nekohasekai.libbox.BridgeSession;
 import io.nekohasekai.libbox.CommandServer;
 import io.nekohasekai.libbox.CommandServerHandler;
 import io.nekohasekai.libbox.ConnectionOwner;
+import io.nekohasekai.libbox.OverrideOptions;
 import io.nekohasekai.libbox.LocalDNSTransport;
 import io.nekohasekai.libbox.NeighborUpdateListener;
 import io.nekohasekai.libbox.InterfaceUpdateListener;
@@ -221,7 +222,7 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
         worker.execute(() -> {
             try {
                 String config = buildSingBoxConfig(serverHost, serverPort, serverUser, serverPass, null);
-                commandServer.startOrReloadService(config, null);
+                commandServer.startOrReloadService(config, new OverrideOptions());
                 setStatus(true, "Connected");
                 notifyStatus("Connected");
                 logI("reloaded after network change");
@@ -271,7 +272,7 @@ public class SocksVpnService extends VpnService implements PlatformInterface, Co
             if (BuildConfig.DEBUG) {
                 logI("config: " + redactSecrets(config));
             }
-            commandServer.startOrReloadService(config, null);
+            commandServer.startOrReloadService(config, new OverrideOptions());
 
             serverHost = host.trim();
             serverPort = port;
