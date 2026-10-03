@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- HTTP ping memakai http:// generate_204 (bukan https, biar murah tanpa TLS).
+         Android 9+ memblokir cleartext secara default; izinkan khusus dua domain
+         ping ini supaya tombol HTTP ping di client bekerja seperti di desktop. -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">www.gstatic.com</domain>
+        <domain includeSubdomains="false">cp.cloudflare.com</domain>
+    </domain-config>
+</network-security-config>
